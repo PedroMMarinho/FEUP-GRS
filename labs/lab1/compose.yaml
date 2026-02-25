@@ -9,6 +9,8 @@ services:
     networks:
       server_net:
         ipv4_address: 10.0.2.100
+    volumes:
+      - ./nginx-logs:/var/log/nginx
 
   client:
     build: ./baseimage
@@ -35,6 +37,8 @@ services:
         ipv4_address: 10.0.1.254
       server_net:
         ipv4_address: 10.0.2.254
+    volumes:
+      - ./traffic-captures:/traffic-captures
 
 networks:
   client_net:
