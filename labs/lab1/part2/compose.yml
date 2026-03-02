@@ -1,0 +1,73 @@
+version: '3'
+services:
+  nginx:
+    #image: nginx:latest
+    build: ./nginx
+    privileged: true
+    deploy:
+      replicas: 4
+      resources:
+        limits:
+          cpus: '0.80'
+          memory: 100M
+        reservations:
+          memory: 60M
+    #hostname: "web-{{.Task.Slot}}"
+    volumes:
+      - ./nginx/entrypoint.sh:/entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    ports:
+      - 80
+    networks:
+      server_net:
+  loadbalancer:
+    build: ./loadbalancer
+    container_name: loadbalancer
+    privileged: true
+    ports:
+      - "80:80"
+    networks:
+      server_net:
+        ipv4_address: 10.0.2.100
+    #command: sh -c " /sbin/ip route replace default via 10.0.2.254 && exec /docker-entrypoint.sh nginx -g 'daemon off;'"
+    tty: true
+    depends_on:
+      - router
+      - nginx
+  client:
+    build: ./baseimage
+#    container_name: client
+    privileged: true
+    networks:
+      client_net:
+    deploy:
+      replicas: 4
+    command: > 
+      sh -c "/sbin/ip route add 10.0.2.0/24 via 10.0.1.254 && /bin/bash"
+    tty: true
+    depends_on:
+      - router
+  router:
+    build: ./baseimage
+    container_name: router
+    hostname: router
+    privileged: true
+    command: >
+      sh -c "/bin/bash"
+    tty: true
+    networks:
+      client_net:
+        ipv4_address: 10.0.1.254
+      server_net:
+        ipv4_address: 10.0.2.254 
+networks:
+  client_net:
+    ipam:
+      config:
+        - subnet: 10.0.1.0/24
+          gateway: 10.0.1.253
+  server_net:
+    ipam:
+      config:
+        - subnet: 10.0.2.0/24
+          gateway: 10.0.2.253

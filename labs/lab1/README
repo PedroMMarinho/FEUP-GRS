@@ -1,0 +1,21 @@
+# Experiment 1 — Without Load Balancer
+
+| Measurement | Value |
+| :--- | :--- |
+| Average ping latency | 0.302 ms |
+| HTTP response time | 6.867 ms |
+| Successful requests | 1000 |
+| Service available after router failure? | Clients do not complete the **ab** test (No route to host (113)) |
+
+
+----
+
+Experiment 2 — With Load Balancer
+
+Measurement	Value
+Average ping latency	 
+Throughput (requests/sec)	 
+Number of active servers	 
+Service available after backend failure?	
+
+
