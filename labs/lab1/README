@@ -5,7 +5,7 @@
 | Average ping latency | 0.302 ms |
 | HTTP response time | 6.867 ms |
 | Successful requests | 1000 |
-| Service available after router failure? | Clients do not complete the **ab** test (No route to host (113)) |
+| Service available after router failure? | Clients do not complete the **ab** test. As expected because router is responsible for forwarding the clients request (No route to host (113)) |
 
 
 ----
@@ -14,9 +14,9 @@ Experiment 2 — With Load Balancer
 
 | Measurement | Value |
 | :--- | :--- |
-| Average ping latency |  |
+| Average ping latency | 0.301 ms |
 | Throughput (requests/sec) | 17593.10 |
 | Number of active servers |  5 |
-| Service available after backend failure? | Yes |
+| Service available after backend failure? | Yes, when the load balancer tried to connect to the backend that was down, eventually, after a timeout, it tries another backend. |
 
 
