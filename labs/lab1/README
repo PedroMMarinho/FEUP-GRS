@@ -12,10 +12,11 @@
 
 Experiment 2 — With Load Balancer
 
-Measurement	Value
-Average ping latency	 
-Throughput (requests/sec)	 
-Number of active servers	 
-Service available after backend failure?	
+| Measurement | Value |
+| :--- | :--- |
+| Average ping latency |  |
+| Throughput (requests/sec) | 17593.10 |
+| Number of active servers |  5 |
+| Service available after backend failure? | Yes |
 
 
