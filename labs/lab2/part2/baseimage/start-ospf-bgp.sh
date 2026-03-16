@@ -28,20 +28,7 @@ declare -A ip2name=(
 
 )
 
-for iface in $(ls /sys/class/net | grep -E '^eth'); do
-  ip=$(ip -4 addr show "$iface" 2>/dev/null | awk '/inet / {print $2}' | cut -d/ -f1 || true)
-  [ -z "$ip" ] && continue
 
-  target="${ip2name[$ip]:-}"
-  if [ -n "$target" ]; then
-    echo "Renaming $iface ($ip) -> $target"
-    ip link set "$iface" down
-    ip link set "$iface" name "$target"
-    ip link set "$target" up
-  else
-    echo "No mapping for $iface ($ip), leaving as-is"
-  fi
-done
 
 # exec command (default /bin/sh) so container remains interactive unless overridden
 

@@ -1,0 +1,12 @@
+#!/usr/bin/expect -f
+
+spawn telnet localhost 2605
+expect "Password:"
+send "Quagga\r"
+expect ">"
+send "enable\r"
+expect "Password:"
+send "Quagga\r"
+
+# This is the magic part:
+interact

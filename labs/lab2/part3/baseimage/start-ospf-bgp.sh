@@ -1,5 +1,5 @@
 #!/bin/bash
-
+#
 set -euo pipefail
 
 # small delay to let Docker assign IPs
@@ -14,7 +14,7 @@ declare -A ip2name=(
   [10.0.1.19]=eth1
   [10.0.1.11]=eth0
   [10.0.1.18]=eth1
-  [172.16.123.142]=eth2
+  [172.16.123.130]=eth2
   [172.16.123.158]=eth2
   [172.31.255.252]=eth2
   [10.0.2.2]=eth0
@@ -29,11 +29,11 @@ declare -A ip2name=(
 )
 
 
-
 # exec command (default /bin/sh) so container remains interactive unless overridden
 
 exec "$@"
 systemctl start zebra
 systemctl start ospfd
+systemctl start bgpd
 /root/sleep.sh
 
