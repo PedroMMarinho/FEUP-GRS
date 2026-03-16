@@ -59,7 +59,7 @@ services:
         ipv4_address: 172.31.255.253
     volumes:
       - ./zebra.conf:/etc/quagga/zebra.conf
-      - ./ospfd.conf:/etc/quagga/ospfd.conf
+      - ./ospfd1.conf:/etc/quagga/ospfd.conf
     command: > 
                 sh -c "/sbin/ip route replace default via 172.31.255.1 && /root/start.sh"
     tty: true
@@ -80,7 +80,7 @@ services:
         ipv4_address: 172.16.123.158
     volumes:
       - ./zebra.conf:/etc/quagga/zebra.conf
-      - ./ospfd.conf:/etc/quagga/ospfd.conf
+      - ./ospfd2.conf:/etc/quagga/ospfd.conf
     command: >
                 sh -c "/sbin/ip route del default via 10.0.1.9 && /root/start.sh"
     tty: true
@@ -101,7 +101,7 @@ services:
         ipv4_address: 172.16.123.142
     volumes:
       - ./zebra.conf:/etc/quagga/zebra.conf
-      - ./ospfd.conf:/etc/quagga/ospfd.conf
+      - ./ospfd3.conf:/etc/quagga/ospfd.conf
     command: >
                 sh -c "/sbin/ip route del default via 10.0.1.1 && /root/start.sh" 
     tty: true
