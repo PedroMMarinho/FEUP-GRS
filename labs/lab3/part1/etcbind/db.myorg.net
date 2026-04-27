@@ -1,0 +1,38 @@
+;
+; BIND data file for the local loopback interface
+;
+$TTL    604800
+@       IN      SOA     ns1.myorg.net. admin.myorg.net. (
+                              2         ; Serial
+                         604800         ; Refresh
+                          86400         ; Retry
+                        2419200         ; Expire
+                         604800 )       ; Negative Cache TTL
+
+;
+
+; NS records for name servers
+        IN      NS      ns1.myorg.net.
+        IN      NS      ns2.myorg.net.
+
+; A records for name servers
+ns1.myorg.net.          IN      A       172.16.123.138
+ns2.myorg.net.          IN      A       172.16.123.139
+
+; Mail handler or MX record for the domain myorg.net
+myorg.net.    IN      MX   10   mail.myorg.net.
+
+; A records for domain names
+; The base domain and 'www' should point to your Load Balancer
+myorg.net.              IN      A       172.16.123.136
+www.myorg.net.          IN      A       172.16.123.136
+mail.myorg.net.         IN      A       172.16.123.140 ; Placeholder IP
+
+; Web server backend nodes (Assigning available IPs in the /28 subnet)
+www1.myorg.net.         IN      A       172.16.123.129
+www2.myorg.net.         IN      A       172.16.123.130
+www3.myorg.net.         IN      A       172.16.123.131
+www4.myorg.net.         IN      A       172.16.123.132
+
+; Router IP
+router.myorg.net.       IN      A       172.16.123.142

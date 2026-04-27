@@ -1,0 +1,5 @@
+labs/lab1/part1/results/*
+labs/lab1/part1/nginx-logs/*
+labs/lab1/part1/traffic-captures/*
+.obsidian
+.DS_Store
