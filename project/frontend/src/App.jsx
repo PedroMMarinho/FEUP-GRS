@@ -13,6 +13,7 @@ import DeviceNode from './nodes/DeviceNode';
 import NetworkNode from './nodes/NetworkNode';
 import Toolbar from './components/Toolbar';
 import ConfigSidebar from './components/ConfigSidebar';
+import DeviceSidebar from './components/DeviceSidebar';
 import { buildTopology, downloadJSON } from './utils/export';
 import { EXAMPLE_NODES, EXAMPLE_EDGES } from './utils/exampleTopology';
 
@@ -68,6 +69,29 @@ export default function App() {
   // Theme State
   const [isDarkMode, setIsDarkMode] = useState(true);
   const theme = isDarkMode ? themes.dark : themes.light;
+
+  const [leftPanelWidth, setLeftPanelWidth] = useState(220);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const startResizing = React.useCallback(() => setIsDragging(true), []);
+  const stopResizing = React.useCallback(() => setIsDragging(false), []);
+
+  const resize = React.useCallback((mouseMoveEvent) => {
+    if (isDragging) {
+      let newWidth = mouseMoveEvent.clientX;
+      if (newWidth > 400) newWidth = 400; // Max width limit
+      setLeftPanelWidth(newWidth);
+    }
+  }, [isDragging]);
+
+  React.useEffect(() => {
+    window.addEventListener("mousemove", resize);
+    window.addEventListener("mouseup", stopResizing);
+    return () => {
+      window.removeEventListener("mousemove", resize);
+      window.removeEventListener("mouseup", stopResizing);
+    };
+  }, [resize, stopResizing]);
 
   // React Flow change handlers
   const onNodesChange = useCallback((changes) => setNodes((nds) => applyNodeChanges(changes, nds)), []);
@@ -144,6 +168,7 @@ export default function App() {
       flexGrow: 1,
       display: 'flex',
       overflow: 'hidden',
+      userSelect: isDragging ? 'none' : 'auto',
     },
     canvas: {
       flexGrow: 1,
@@ -191,7 +216,28 @@ export default function App() {
       borderRadius: 8,
       cursor: 'pointer',
       fontFamily: 'monospace',
-    }
+    },
+    leftSidebar: {
+      width: leftPanelWidth,
+      background: theme.sidebarBg,
+      borderRight: leftPanelWidth > 0 ? `1px solid ${theme.borderColor}` : 'none', 
+      flexShrink: 0,
+      position: 'relative', 
+      display: 'flex',
+      overflow: 'visible', 
+      transition: isDragging ? 'none' : 'width 0.2s ease', 
+    },
+    resizer: {
+      position: 'absolute',
+      right: -4, 
+      top: 0,
+      bottom: 0,
+      width: 8, 
+      cursor: 'col-resize', 
+      background: isDragging ? theme.accentMain : 'transparent', // <--- The Terminal Green is back!
+      zIndex: 10,
+      transition: 'background 0.2s ease',
+    },
   };
 
   return (
@@ -206,6 +252,22 @@ export default function App() {
     />
 
       <div style={dynamicStyles.body}>
+        
+        {/* --- LEFT PANEL --- */}
+        <div style={dynamicStyles.leftSidebar}>
+          {/* Removed minWidth so it safely shrinks to 0 without spilling out */}
+          <div style={{ width: '100%', flexShrink: 0, height: '100%', overflow: 'hidden' }}>
+            <DeviceSidebar onAdd={handleAdd} theme={theme} />
+          </div>
+          
+          {/* THE DRAG HANDLE */}
+          <div 
+            style={dynamicStyles.resizer} 
+            onMouseDown={startResizing} 
+          />
+        </div>
+
+
         {/* Canvas */}
         <div style={dynamicStyles.canvas}>
 
@@ -223,7 +285,18 @@ export default function App() {
             proOptions={{ hideAttribution: true }}
           >
             <Background color={theme.textMuted} gap={24} size={1.2} />
-            <Controls style={{ background: theme.controlsBg, border: `1px solid ${theme.borderColor}`, borderRadius: 8, overflow: 'hidden' }} />
+            
+            <Controls 
+              position="bottom-left" 
+              style={{ 
+                left: 15, 
+                background: theme.controlsBg, 
+                border: `1px solid ${theme.borderColor}`, 
+                borderRadius: 8, 
+                overflow: 'hidden' 
+              }} 
+            />
+            
             <MiniMap
               style={{ background: theme.canvasBg, border: `1px solid ${theme.borderColor}`, borderRadius: 8, overflow: 'hidden' }}
               nodeColor={(n) => {
