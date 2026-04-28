@@ -38,6 +38,8 @@ const themes = {
     textMuted: '#64748b', // Slate grey
     accentBg: '#f8fafc', // White button in dark mode
     accentText: '#0f172a', // Dark text on white button
+    accentMain: '#22c55e', // Terminal Green
+    accentHover: '#16a34a', // Slightly darker green for hover states
   },
   light: {
     rootBg: '#f8fafc',
@@ -53,6 +55,8 @@ const themes = {
     textMuted: '#94a3b8', // Light slate
     accentBg: '#0f172a', // Dark button in light mode
     accentText: '#f8fafc', // White text on dark button
+    accentMain: '#16a34a', // Slightly darker for light mode contrast
+    accentHover: '#15803d',
   }
 };
 
@@ -218,10 +222,10 @@ export default function App() {
             deleteKeyCode="Delete"
             proOptions={{ hideAttribution: true }}
           >
-            <Background color={theme.borderColor} gap={24} size={1} />
-            <Controls style={{ background: theme.controlsBg, border: `1px solid ${theme.borderColor}`, borderRadius: 8 }} />
+            <Background color={theme.textMuted} gap={24} size={1.2} />
+            <Controls style={{ background: theme.controlsBg, border: `1px solid ${theme.borderColor}`, borderRadius: 8, overflow: 'hidden' }} />
             <MiniMap
-              style={{ background: theme.canvasBg, border: `1px solid ${theme.borderColor}`, borderRadius: 8 }}
+              style={{ background: theme.canvasBg, border: `1px solid ${theme.borderColor}`, borderRadius: 8, overflow: 'hidden' }}
               nodeColor={(n) => {
                 const type = n.data?.type;
                 const colorMap = { router: '#e05c2a', switch: '#2a7be0', host: '#2ab068', network: '#7c3aed' };
@@ -247,6 +251,7 @@ export default function App() {
             onDelete={handleDelete}
             // You might want to pass isDarkMode here so the sidebar components match!
             isDarkMode={isDarkMode} 
+            theme={theme}
           />
         </div>
       </div>

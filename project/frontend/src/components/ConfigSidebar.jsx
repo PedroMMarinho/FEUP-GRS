@@ -1,7 +1,19 @@
 import React from 'react';
 import { DEVICE_MAP } from '../devices';
 
-export default function ConfigSidebar({ selectedNode, onConfigChange, onDelete }) {
+export default function ConfigSidebar({ selectedNode, onConfigChange, onDelete, isDarkMode, theme }) {
+  // Fallback theme to prevent crashes
+  const currentTheme = theme || {
+    sidebarBg: '#0d1117',
+    borderColor: '#1e2438',
+    controlsBg: '#131929',
+    textMain: '#f8fafc',
+    textMuted: '#64748b',
+    accentMain: '#22c55e', 
+  };
+
+  const styles = getStyles(currentTheme, isDarkMode);
+
   if (!selectedNode) {
     return (
       <div style={styles.empty}>
@@ -52,9 +64,10 @@ export default function ConfigSidebar({ selectedNode, onConfigChange, onDelete }
                     type="checkbox"
                     checked={!!config[field.key]}
                     onChange={(e) => onConfigChange(field.key, e.target.checked)}
-                    style={{ accentColor: def.color }}
+                    // Swapped hardcoded color to your Terminal Green!
+                    style={{ accentColor: currentTheme.accentMain }} 
                   />
-                  <span style={{ marginLeft: 8, fontSize: 13, color: '#a0aec0' }}>
+                  <span style={{ marginLeft: 8, fontSize: 13, color: currentTheme.textMuted }}>
                     {config[field.key] ? 'Enabled' : 'Disabled'}
                   </span>
                 </label>
@@ -95,12 +108,13 @@ export default function ConfigSidebar({ selectedNode, onConfigChange, onDelete }
   );
 }
 
-const styles = {
+const getStyles = (theme, isDarkMode) => ({
   panel: {
     height: '100%',
     display: 'flex',
     flexDirection: 'column',
     overflowY: 'auto',
+    background: theme.sidebarBg,
   },
   empty: {
     height: '100%',
@@ -112,10 +126,10 @@ const styles = {
   },
   emptyIcon: {
     fontSize: 40,
-    color: '#2d3348',
+    color: theme.borderColor, // Makes the hexagon subtle and match the theme
   },
   emptyText: {
-    color: '#4a5568',
+    color: theme.textMuted,
     textAlign: 'center',
     fontSize: 13,
     lineHeight: 1.6,
@@ -136,23 +150,23 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
-    color: '#fff',
+    color: '#ffffff', // Kept white so icon contrasts against dynamic device colors
   },
   deviceType: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: 700,
-    color: '#e2e8f0',
+    color: theme.textMain,
     fontFamily: "'DM Mono', monospace",
   },
   nodeId: {
-    fontSize: 10,
-    color: '#4a5568',
+    fontSize: 14,
+    color: theme.textMuted,
     fontFamily: 'monospace',
     marginTop: 2,
   },
   divider: {
     height: 1,
-    background: '#1e2438',
+    background: theme.borderColor,
     margin: '0 0',
   },
   fields: {
@@ -168,23 +182,24 @@ const styles = {
     gap: 5,
   },
   label: {
-    fontSize: 11,
-    color: '#718096',
+    fontSize: 12,
+    color: theme.textMuted,
     fontWeight: 600,
     textTransform: 'uppercase',
     letterSpacing: '0.06em',
   },
   input: {
-    background: '#0d1117',
-    border: '1px solid #2d3348',
+    background: theme.controlsBg,
+    border: `1px solid ${theme.borderColor}`,
     borderRadius: 6,
     padding: '7px 10px',
-    color: '#e2e8f0',
-    fontSize: 13,
+    color: theme.textMain,
+    fontSize: 14,
     fontFamily: "'DM Mono', monospace",
     width: '100%',
     boxSizing: 'border-box',
     outline: 'none',
+    transition: 'border-color 0.2s ease, background 0.2s ease',
   },
   toggle: {
     display: 'flex',
@@ -194,13 +209,14 @@ const styles = {
   deleteBtn: {
     margin: '12px 20px',
     padding: '8px 0',
-    background: 'transparent',
-    border: '1px solid #3d2020',
+    // Adaptive red button for light/dark mode
+    background: isDarkMode ? 'transparent' : '#fef2f2',
+    border: `1px solid ${isDarkMode ? '#3d2020' : '#fca5a5'}`,
     borderRadius: 6,
-    color: '#e05252',
+    color: isDarkMode ? '#e05252' : '#dc2626',
     fontSize: 12,
     cursor: 'pointer',
     fontFamily: 'monospace',
-    transition: 'background 0.15s',
+    transition: 'all 0.15s',
   },
-};
+});

@@ -1,62 +1,57 @@
-import React from 'react';
-import DEVICES from '../devices';
-import logo from '../../public/logo.png';
-export default function Toolbar({ onAdd, onExport, onLoadExample, isDarkMode, toggleTheme, theme }) {
-  // Updated fallback to use our new minimalist text/accent keys
+import React, { useState } from 'react';
+import logo from '../assets/logo.png';
+
+export default function Toolbar({ onExportJSON, onExportPNG, onLoadExample, isDarkMode, toggleTheme, theme }) {
+  const [isExportOpen, setIsExportOpen] = useState(false);
+
+  // Fallback to prevent crashes if theme isn't fully loaded
   const currentTheme = theme || {
-    sidebarBg: '#0d1117',
+    sidebarBg: '#0a0e1a',
     borderColor: '#1e2438',
     controlsBg: '#131929',
     textMain: '#f8fafc',
     textMuted: '#64748b',
     accentBg: '#f8fafc',
     accentText: '#0f172a',
+    accentMain: '#22c55e', 
+    accentHover: '#16a34a',
   };
 
-  const styles = getStyles(currentTheme, isDarkMode);
+  const styles = getStyles(currentTheme, isDarkMode, isExportOpen);
 
   return (
     <div style={styles.bar}>
       
-      {/* Sleek, Minimalist Bracket Logo with Icon */}
-      <div style={styles.brand}>
-        <img src={logo} alt="NetCompose Icon" style={styles.brandLogo} />
-        <span style={styles.brandAccent}>[</span>
-        Net
-        <span style={styles.brandSub}>Compose</span>
-        <span style={styles.brandAccent}>]</span>
+      {/* --- LEFT SECTION --- */}
+      <div style={styles.leftSection}>
+        {/* 1. Logo */}
+        <img src={logo} alt="NetCompose Logo" style={styles.brandLogo} />
+
+        {/* 2. Divider */}
+        <div style={styles.divider} />
+
+        {/* 3. Text Name (Tightly grouped) */}
+        <div style={styles.brandText}>
+          <span style={styles.brandAccent}>[</span>
+          <span style={{ color: currentTheme.accentMain }}>Net</span>
+          <span style={styles.brandSub}>Compose</span>
+          <span style={styles.brandAccent}>]</span>
+        </div>
       </div>
 
-      <div style={styles.divider} />
-
-      <div style={styles.deviceButtons}>
-        {DEVICES.map((def) => (
-          <button
-            key={def.type}
-            onClick={() => onAdd(def.type)}
-            style={styles.deviceBtn}
-            title={`Add ${def.label}`}
-          >
-            {/* Stripped the hardcoded def.color to use theme text colors */}
-            <span
-              style={styles.btnIcon}
-              dangerouslySetInnerHTML={{ __html: def.icon }}
-            />
-            <span style={styles.btnLabel}>{def.label}</span>
-          </button>
-        ))}
-      </div>
-
+      {/* --- RIGHT SECTION --- */}
       <div style={styles.rightSection}>
         <button onClick={onLoadExample} style={styles.exampleBtn} title="Load a pre-built example topology">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          {/* --- STAR ICON --- */}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" strokeWidth="2" style={{ display: 'block' }}>
             <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
           </svg>
-          Example
+          <span>Example</span>
         </button>
 
+        {/* Theme Toggle Slider */}
         <div style={styles.toggleTrack} onClick={toggleTheme}>
-          <svg style={{ ...styles.toggleIcon, left: 6 }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg style={{ ...styles.toggleIcon, left: 6 }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={currentTheme.textMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
           </svg>
           <svg style={{ ...styles.toggleIcon, right: 6 }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -70,100 +65,118 @@ export default function Toolbar({ onAdd, onExport, onLoadExample, isDarkMode, to
             <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
             <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
           </svg>
+          {/* Knob uses accentBg (White in Dark Mode, Black in Light Mode) */}
           <div style={styles.toggleKnob} />
         </div>
 
-        {/* Minimalist High-Contrast Export Button */}
-        <button onClick={onExport} style={styles.exportBtn}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-            <polyline points="7 10 12 15 17 10"/>
-            <line x1="12" y1="15" x2="12" y2="3"/>
-          </svg>
-          Export JSON
-        </button>
+        {/* Export Dropdown */}
+        <div style={styles.dropdownContainer}>
+          <button 
+            onClick={() => setIsExportOpen(!isExportOpen)} 
+            style={styles.exportBtn}
+          >
+            {/* Download Icon */}
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ flexShrink: 0 }}>
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            
+            <span>Export</span>
+            
+            {/* Animated Chevron */}
+            <svg 
+              width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+              style={{ 
+                flexShrink: 0,
+                transition: 'transform 0.2s ease', 
+                transform: isExportOpen ? 'rotate(180deg)' : 'rotate(0deg)' 
+              }}
+            >
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </button>
+
+          {/* Popover Menu */}
+          {isExportOpen && (
+            <div style={styles.dropdownMenu}>
+              <div 
+                style={styles.dropdownItem} 
+                onClick={() => { onExportJSON?.(); setIsExportOpen(false); }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={currentTheme.textMuted} strokeWidth="2">
+                  <polyline points="16 18 22 12 16 6"></polyline>
+                  <polyline points="8 6 2 12 8 18"></polyline>
+                </svg>
+                .JSON Config
+              </div>
+              <div style={styles.dropdownDivider} />
+              <div 
+                style={styles.dropdownItem} 
+                onClick={() => { onExportPNG?.(); setIsExportOpen(false); }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={currentTheme.textMuted} strokeWidth="2">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                  <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                  <polyline points="21 15 16 10 5 21"></polyline>
+                </svg>
+                .PNG Image
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-const getStyles = (theme, isDarkMode) => ({
+const getStyles = (theme, isDarkMode, isExportOpen) => ({
   bar: {
     height: 52,
     background: theme.sidebarBg,
     borderBottom: `1px solid ${theme.borderColor}`,
     display: 'flex',
     alignItems: 'center',
+    justifyContent: 'space-between',
     padding: '0 16px',
-    gap: 16, // slightly increased gap for a breather
     flexShrink: 0,
     transition: 'background 0.3s ease, border-color 0.3s ease',
   },
-brand: {
+  leftSection: {
     display: 'flex',
     alignItems: 'center',
-    gap: 2, 
-    fontSize: 16,
-    fontWeight: 700,
-    color: theme.textMain,
-    fontFamily: "'DM Mono', monospace",
-    letterSpacing: '0.02em',
-    flexShrink: 0,
+    gap: 16, // This is the space between the Logo, Divider, and Text!
   },
   brandLogo: {
-    height: 24, // Keeps it perfectly scaled with the 16px font
+    height: 32, // Scaled down slightly so it aligns perfectly with the text height
     width: 'auto',
-    marginRight: 6, // Adds a nice little breather between the cube and the bracket
-    filter: isDarkMode ? 'none' : 'invert(1) hue-rotate(180deg) brightness(1.5)', // Optional: Helps it pop if you switch to light mode!
-  },
-  brandAccent: {
-    color: theme.textMuted,
-    fontWeight: 400,
-    margin: '0 4px', 
-  },
-  brandSub: {
-    fontWeight: 400,
-    color: theme.textMain, 
+    // Keeps logo visible if you swap to light mode
   },
   divider: {
     width: 1,
     height: 24,
     background: theme.borderColor,
   },
-  deviceButtons: {
-    display: 'flex',
-    gap: 6,
-    alignItems: 'center',
-  },
-  deviceBtn: {
+  brandText: {
     display: 'flex',
     alignItems: 'center',
-    gap: 7,
-    padding: '6px 12px',
-    background: theme.controlsBg,
-    border: `1px solid ${theme.borderColor}`,
-    borderRadius: 6,
-    cursor: 'pointer',
-    transition: 'all 0.15s ease',
+    gap: 2, // Tight gap just for the text brackets
+    fontSize: 18,
+    fontWeight: 700,
     color: theme.textMain,
+    fontFamily: "'DM Mono', monospace",
+    letterSpacing: '0.02em',
   },
-  btnIcon: {
-    width: 16,
-    height: 16,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-    color: theme.textMuted, // Removed the colored SVG fill, defaults to theme
-  },
-  btnLabel: {
-    fontSize: 12,
-    fontWeight: 500,
+  brandAccent: {
     color: theme.textMuted,
-    fontFamily: 'monospace',
+    fontWeight: 400,
+    margin: '0 2px', 
+  },
+  brandSub: {
+    fontWeight: 400,
+    color: theme.textMain, 
   },
   rightSection: {
-    marginLeft: 'auto',
     display: 'flex',
     alignItems: 'center',
     gap: 12,
@@ -176,25 +189,23 @@ brand: {
     background: 'transparent',
     border: `1px solid ${theme.borderColor}`,
     borderRadius: 6,
-    color: theme.textMuted,
+    color: theme.textMain,
     fontSize: 12,
     fontWeight: 500,
     cursor: 'pointer',
     fontFamily: 'monospace',
-    flexShrink: 0,
-    transition: 'all 0.15s',
+    lineHeight: 1,
   },
   toggleTrack: {
     position: 'relative',
     width: 52,
     height: 26,
-    background: theme.controlsBg, // Tied strictly to theme now
+    background: theme.controlsBg, 
     border: `1px solid ${theme.borderColor}`,
     borderRadius: 13,
     cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
-    transition: 'background 0.3s ease',
   },
   toggleIcon: {
     position: 'absolute',
@@ -208,26 +219,62 @@ brand: {
     width: 20,
     height: 20,
     borderRadius: '50%',
-    background: theme.textMain, // Using theme text for the knob so it pops
-    boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+    background: theme.accentBg, 
+    boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
     zIndex: 1,
     transform: isDarkMode ? 'translateX(0px)' : 'translateX(26px)',
     transition: 'transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1), background 0.3s ease',
   },
+  dropdownContainer: {
+    position: 'relative',
+  },
   exportBtn: {
     display: 'flex',
     alignItems: 'center',
-    gap: 7,
-    padding: '7px 16px',
-    background: theme.accentBg, // High contrast
+    justifyContent: 'center',
+    gap: 6,
+    padding: '7px 14px',
+    background: theme.accentMain, // Terminal Green
     border: 'none',
     borderRadius: 6,
-    color: theme.accentText, // High contrast text
-    fontSize: 12,
-    fontWeight: 600,
+    color: theme.accentText, // Will dynamically swap using your theme!
+    fontSize: 13,
+    fontWeight: 700,
+    lineHeight: 1,
     cursor: 'pointer',
     fontFamily: 'monospace',
-    flexShrink: 0,
     transition: 'opacity 0.2s ease',
   },
+  dropdownMenu: {
+    position: 'absolute',
+    top: '100%',
+    right: 0,
+    marginTop: 8,
+    background: theme.sidebarBg,
+    border: `1px solid ${theme.borderColor}`,
+    borderRadius: 8,
+    boxShadow: '0 4px 12px rgba(0,0,0,0.15)', // Reduced shadow
+    display: 'flex',
+    flexDirection: 'column',
+    minWidth: 160,
+    zIndex: 100,
+    overflow: 'hidden',
+    fontFamily: 'monospace',
+  },
+  dropdownItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    padding: '12px 16px',
+    color: theme.textMain,
+    fontSize: 13,
+    cursor: 'pointer',
+    background: 'transparent',
+    transition: 'background 0.2s ease',
+  },
+  dropdownDivider: {
+    height: 1,
+    background: theme.borderColor,
+    width: '100%',
+  }
 });
