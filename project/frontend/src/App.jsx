@@ -66,6 +66,7 @@ export default function App() {
   const [edges, setEdges] = useState([]);
   const [selectedNodeId, setSelectedNodeId] = useState(null);
   
+  const [reactFlowInstance, setReactFlowInstance] = useState(null);
   // Theme State
   const [isDarkMode, setIsDarkMode] = useState(true);
   const theme = isDarkMode ? themes.dark : themes.light;
@@ -125,6 +126,43 @@ export default function App() {
     setNodes((nds) => nds.concat(newNode));
     setSelectedNodeId(id);
   }, []);
+
+  const onDragOver = useCallback((event) => {
+    event.preventDefault(); // Required to allow dropping
+    event.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const onDrop = useCallback(
+    (event) => {
+      event.preventDefault();
+
+      // Get the type of device we packed into the event back in the sidebar
+      const type = event.dataTransfer.getData('application/reactflow');
+      if (typeof type === 'undefined' || !type) return;
+
+      // Calculate the exact drop position on the canvas (accounts for zoom/pan!)
+      const position = reactFlowInstance.screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      });
+
+      // Create the new node just like handleAdd does, but use the specific position
+      const id = `${type}_${Math.random().toString(36).substr(2, 5)}`;
+      const isNetwork = type === 'network';
+
+      const newNode = {
+        id,
+        type: isNetwork ? 'networkNode' : 'deviceNode',
+        data: { type, config: {} },
+        position, // Use the drop coordinates!
+        ...(isNetwork && { style: { width: 300, height: 220 } }),
+      };
+
+      setNodes((nds) => nds.concat(newNode));
+      setSelectedNodeId(id);
+    },
+    [reactFlowInstance, setNodes]
+  );
 
   const handleConfigChange = useCallback((field, value) => {
     setNodes((nds) =>
@@ -257,7 +295,7 @@ export default function App() {
         <div style={dynamicStyles.leftSidebar}>
           {/* Removed minWidth so it safely shrinks to 0 without spilling out */}
           <div style={{ width: '100%', flexShrink: 0, height: '100%', overflow: 'hidden' }}>
-            <DeviceSidebar onAdd={handleAdd} theme={theme} />
+            <DeviceSidebar onAdd={handleAdd} theme={theme} isDarkMode={isDarkMode} />
           </div>
           
           {/* THE DRAG HANDLE */}
@@ -271,6 +309,14 @@ export default function App() {
         {/* Canvas */}
         <div style={dynamicStyles.canvas}>
 
+          <style>{`
+            .react-flow__node-deviceNode img,
+            .react-flow__node-networkNode img {
+               filter: ${isDarkMode ? 'invert(1)' : 'none'};
+               transition: filter 0.3s ease;
+            }
+          `}</style>
+
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -283,6 +329,9 @@ export default function App() {
             fitView
             deleteKeyCode="Delete"
             proOptions={{ hideAttribution: true }}
+            onInit={setReactFlowInstance}
+            onDrop={onDrop}
+            onDragOver={onDragOver}
           >
             <Background color={theme.textMuted} gap={24} size={1.2} />
             

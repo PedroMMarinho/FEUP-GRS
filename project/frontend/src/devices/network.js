@@ -1,19 +1,15 @@
 // Network nodes are rendered as resizable background groups.
 // Devices dragged inside them are considered "members" of that subnet.
+
+import networkIcon from '../assets/network.svg';
+
 const network = {
   type: 'network',
   label: 'Network',
   // color is used for the translucent fill and border of the group area
   color: '#7c3aed',
   textColor: '#ffffff',
-  icon: `
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <ellipse cx="12" cy="12" rx="10" ry="4"/>
-      <path d="M2 12c0 4.418 4.477 8 10 8s10-3.582 10-8"/>
-      <line x1="12" y1="2" x2="12" y2="22"/>
-    </svg>
-  `,
-
+  icon: `<img src="${networkIcon}" style="width: 100%; height: 100%; object-fit: contain;" alt="Network" />`,
   configFields: [
     {
       key: 'subnet',

@@ -30,7 +30,7 @@ export default function ConfigSidebar({ selectedNode, onConfigChange, onDelete, 
     <div style={styles.panel}>
       {/* Header */}
       <div style={styles.header}>
-        <div style={{ ...styles.iconBadge, background: def.color }}
+        <div style={{ ...styles.iconBadge }}
           dangerouslySetInnerHTML={{ __html: def.icon }}
         />
         <div>
@@ -143,12 +143,13 @@ const getStyles = (theme, isDarkMode) => ({
     padding: '16px 20px',
   },
   iconBadge: {
-    width: 36,
-    height: 36,
+    width: 40,
+    height: 40,
     borderRadius: 8,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
+    filter: isDarkMode ? 'invert(1)' : 'none',
     flexShrink: 0,
     color: '#ffffff', // Kept white so icon contrasts against dynamic device colors
   },

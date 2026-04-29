@@ -1,9 +1,36 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import DEVICES from '../devices';
 
-export default function DeviceSidebar({ onAdd, theme }) {
-  // State to handle the collapse/expand of the section
+export default function DeviceSidebar({ onAdd, theme, isDarkMode }) {
   const [isGeneralOpen, setIsGeneralOpen] = useState(true);
+  
+  // --- ADDED A REF TO MEASURE THE SIDEBAR ---
+  const sidebarRef = useRef(null); 
+  const [hoverState, setHoverState] = useState({ def: null, top: 0, left: 0 });
+
+  const handleMouseEnter = (e, def) => {
+    // 1. Get the button's Y-position (so we can center it vertically)
+    const btnRect = e.currentTarget.getBoundingClientRect();
+    
+    // 2. Get the entire sidebar's X-position (so we can snap to the slider!)
+    const sidebarRect = sidebarRef.current.getBoundingClientRect();
+
+    setHoverState({
+      def,
+      top: btnRect.top + (btnRect.height / 2) - 60, 
+      // Snap it to the right edge of the sidebar + a 15px gap
+      left: sidebarRect.right + 15, 
+    });
+  };
+
+  const handleMouseLeave = () => {
+    setHoverState({ def: null, top: 0, left: 0 });
+  };
+
+  const onDragStart = (event, nodeType) => {
+    event.dataTransfer.setData('application/reactflow', nodeType);
+    event.dataTransfer.effectAllowed = 'move';
+  };
 
   const styles = {
     sidebar: {
@@ -14,7 +41,6 @@ export default function DeviceSidebar({ onAdd, theme }) {
       flexShrink: 0,
       height: '100%',
     },
-    // The clickable header
     accordionHeader: {
       padding: '8px 12px',
       background: theme.controlsBg,
@@ -28,11 +54,10 @@ export default function DeviceSidebar({ onAdd, theme }) {
       cursor: 'pointer',
       borderBottom: `1px solid ${theme.borderColor}`,
       userSelect: 'none',
-      whiteSpace: 'nowrap',   // Prevents text from wrapping to line 2
-      overflow: 'hidden',     // Hides the text as the panel slides over it
-      textOverflow: 'clip',   // Keeps the cutoff sharp and clean
+      whiteSpace: 'nowrap',   
+      overflow: 'hidden',     
+      textOverflow: 'clip',   
     },
-    // The grid holding the buttons
     grid: {
       display: isGeneralOpen ? 'grid' : 'none',
       gridTemplateColumns: 'repeat(auto-fill, 80px)', 
@@ -40,45 +65,102 @@ export default function DeviceSidebar({ onAdd, theme }) {
       gap: 10,
       padding: '16px 12px 16px 24px',
     },
-    deviceBtn: {
+    deviceBtn: (isHovered) => ({
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
-      justifyContent: 'center', // Centers contents vertically
-      gap: 8,
-      width: 80,  // Exact width!
-      height: 75, // Exact height!
+      justifyContent: 'center', 
+      width: 80,  
+      height: 75, 
       padding: '10px 4px',
-      background: theme.controlsBg, // Gives them a nice distinct background
-      border: `1px solid ${theme.borderColor}`,
+      background: isHovered ? theme.borderColor : 'transparent', 
+      border: 'none', 
+      outline: 'none',
       borderRadius: 8,
       cursor: 'pointer',
       color: theme.textMain,
-      transition: 'border-color 0.2s ease, background 0.2s ease',
+      transition: 'background 0.15s ease',
+    }),
+    previewBox: {
+      position: 'fixed',
+      width: 120,
+      height: 120,
+      background: theme.controlsBg,
+      border: `1px solid ${theme.borderColor}`,
+      borderRadius: 12,
+      boxShadow: '0 8px 30px rgba(0,0,0,0.3)', 
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 12,
+      zIndex: 9999, 
+      pointerEvents: 'none', 
+    },
+    previewText: {
+      fontSize: 14,
+      fontWeight: 600,
+      color: theme.textMain,
+      fontFamily: "'DM Mono', monospace",
     }
   };
 
   return (
-    <div style={styles.sidebar}>
+    // --- ATTACH THE REF TO THE ROOT DIV ---
+    <div style={styles.sidebar} ref={sidebarRef}> 
       
-      {/* Category Header */}
       <div style={styles.accordionHeader} onClick={() => setIsGeneralOpen(!isGeneralOpen)}>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ transform: isGeneralOpen ? 'rotate(90deg)' : 'rotate(0)' }}>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ transform: isGeneralOpen ? 'rotate(90deg)' : 'rotate(0)', transition: 'transform 0.2s ease' }}>
           <polyline points="9 18 15 12 9 6"></polyline>
         </svg>
         General Devices
       </div>
 
-      {/* Collapsible Content */}
       <div style={styles.grid}>
-        {DEVICES.map((def) => (
-          <button key={def.type} onClick={() => onAdd(def.type)} style={styles.deviceBtn}>
-            <span dangerouslySetInnerHTML={{ __html: def.icon }} style={{ color: theme.textMuted }} />
-            <span style={{ fontSize: 11, fontFamily: 'monospace' }}>{def.label}</span>
-          </button>
-        ))}
+        {DEVICES.map((def) => {
+          const isHovered = hoverState.def?.type === def.type;
+
+          return (
+            <button 
+              key={def.type} 
+              onClick={() => onAdd(def.type)} 
+              onMouseEnter={(e) => handleMouseEnter(e, def)}
+              onMouseLeave={handleMouseLeave}
+              style={styles.deviceBtn(isHovered)}
+              draggable
+              onDragStart={(event) => onDragStart(event, def.type)}
+            >
+              <span dangerouslySetInnerHTML={{ __html: def.icon }} style={{ 
+                width: 45, 
+                height: 45, 
+                filter: isDarkMode ? 'invert(1)' : 'none',
+                display: 'flex' 
+              }} />
+            </button>
+          );
+        })}
       </div>
 
+      {hoverState.def && (
+        <div 
+          style={{ 
+            ...styles.previewBox, 
+            top: hoverState.top, 
+            left: hoverState.left 
+          }}
+        >
+          <span 
+            dangerouslySetInnerHTML={{ __html: hoverState.def.icon }} 
+            style={{ 
+              width: 50, 
+              height: 50, 
+              filter: isDarkMode ? 'invert(1)' : 'none',
+              display: 'flex' 
+            }} 
+          />
+          <div style={styles.previewText}>{hoverState.def.label}</div>
+        </div>
+      )}
     </div>
   );
 }
