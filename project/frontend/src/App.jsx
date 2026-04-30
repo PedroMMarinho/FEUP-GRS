@@ -67,6 +67,14 @@ export default function App() {
   const [selectedNodeId, setSelectedNodeId] = useState(null);
   
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
+  const [draggedDevice, setDraggedDevice] = useState(null);
+
+  React.useEffect(() => {
+    if (!draggedDevice) {
+      setNodes((nds) => nds.filter((n) => n.id !== 'ghost-node'));
+    }
+  }, [draggedDevice, setNodes]);
+
   // Theme State
   const [isDarkMode, setIsDarkMode] = useState(true);
   const theme = isDarkMode ? themes.dark : themes.light;
@@ -127,41 +135,78 @@ export default function App() {
     setSelectedNodeId(id);
   }, []);
 
-  const onDragOver = useCallback((event) => {
-    event.preventDefault(); // Required to allow dropping
-    event.dataTransfer.dropEffect = 'move';
-  }, []);
+  // 1. As you drag over the canvas, move the Ghost Node
+  const onDragOver = useCallback(
+    (event) => {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
 
+      if (reactFlowInstance && draggedDevice) {
+        // Calculate exact canvas coordinates
+        const position = reactFlowInstance.screenToFlowPosition({
+          x: event.clientX,
+          y: event.clientY,
+        });
+
+        setNodes((nds) => {
+          const isNetwork = draggedDevice.type === 'network';
+          
+          // Define what the ghost looks like (50% opacity, no pointer events)
+          const ghostNode = {
+            id: 'ghost-node',
+            type: isNetwork ? 'networkNode' : 'deviceNode',
+            position,
+            data: { type: draggedDevice.type, config: {} },
+            style: { 
+              opacity: 0.5, 
+              pointerEvents: 'none', // Prevents the ghost from blocking drops!
+              ...(isNetwork && { width: 300, height: 220 }) 
+            },
+          };
+
+          // If ghost exists, update it. If not, add it.
+          const existing = nds.find((n) => n.id === 'ghost-node');
+          return existing 
+            ? nds.map((n) => (n.id === 'ghost-node' ? ghostNode : n))
+            : [...nds, ghostNode];
+        });
+      }
+    },
+    [reactFlowInstance, draggedDevice, setNodes]
+  );
+
+
+  // 3. When you drop, turn the Ghost into a REAL node
   const onDrop = useCallback(
     (event) => {
       event.preventDefault();
 
-      // Get the type of device we packed into the event back in the sidebar
-      const type = event.dataTransfer.getData('application/reactflow');
-      if (typeof type === 'undefined' || !type) return;
+      if (!draggedDevice || !reactFlowInstance) return;
 
-      // Calculate the exact drop position on the canvas (accounts for zoom/pan!)
       const position = reactFlowInstance.screenToFlowPosition({
         x: event.clientX,
         y: event.clientY,
       });
 
-      // Create the new node just like handleAdd does, but use the specific position
-      const id = `${type}_${Math.random().toString(36).substr(2, 5)}`;
-      const isNetwork = type === 'network';
+      const isNetwork = draggedDevice.type === 'network';
+      const id = `${draggedDevice.type}_${Math.random().toString(36).substr(2, 5)}`;
 
       const newNode = {
         id,
         type: isNetwork ? 'networkNode' : 'deviceNode',
-        data: { type, config: {} },
-        position, // Use the drop coordinates!
+        position,
+        data: { type: draggedDevice.type, config: {} },
         ...(isNetwork && { style: { width: 300, height: 220 } }),
       };
 
-      setNodes((nds) => nds.concat(newNode));
+      // Strip out the ghost and inject the real node
+      setNodes((nds) => nds.filter((n) => n.id !== 'ghost-node').concat(newNode));
+      
+      // Reset drag state
+      setDraggedDevice(null);
       setSelectedNodeId(id);
     },
-    [reactFlowInstance, setNodes]
+    [reactFlowInstance, draggedDevice, setNodes]
   );
 
   const handleConfigChange = useCallback((field, value) => {
@@ -295,7 +340,11 @@ export default function App() {
         <div style={dynamicStyles.leftSidebar}>
           {/* Removed minWidth so it safely shrinks to 0 without spilling out */}
           <div style={{ width: '100%', flexShrink: 0, height: '100%', overflow: 'hidden' }}>
-            <DeviceSidebar onAdd={handleAdd} theme={theme} isDarkMode={isDarkMode} />
+            <DeviceSidebar onAdd={handleAdd}
+            theme={theme}
+            isDarkMode={isDarkMode}
+            setDraggedDevice={setDraggedDevice} 
+            />
           </div>
           
           {/* THE DRAG HANDLE */}
