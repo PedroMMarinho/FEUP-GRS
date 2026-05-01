@@ -31,11 +31,49 @@ def _render(text: str, config: dict[str, Any]) -> str:
     return text
 
 
-def _build_device_context(device: dict, output_dir: Path) -> Path:
+def _build_device_context(device: dict, output_dir: Path, networks: list[dict] = None) -> Path:
     """Copy template for device type, render all files, return context path."""
     device_id = device["id"]
     device_type = device["type"]
-    config = device.get("config", {})
+    config = dict(device.get("config", {}))
+
+    # For routers, build ip_address and interfaces from the exported interfaces map
+    if device_type == "router" and networks:
+        iface_map = config.get("interfaces") or {}
+        if iface_map and isinstance(iface_map, dict):
+            ips   = [v["ip"]             for v in iface_map.values() if isinstance(v, dict) and v.get("ip")]
+            masks = [v.get("mask", "24") for v in iface_map.values() if isinstance(v, dict) and v.get("ip")]
+            subnets = [v.get("subnet")   for v in iface_map.values() if isinstance(v, dict) and v.get("ip")]
+            config.setdefault("ip_address", ips[0] if ips else "")
+
+            iface_cmds = []
+            for i, (ip, mask, subnet) in enumerate(zip(ips, masks, subnets)):
+                iface_cmds.append(f"ip addr add {ip}/{mask} dev eth{i} 2>/dev/null || true")
+                iface_cmds.append(f"ip link set eth{i} up")
+                if subnet:
+                    iface_cmds.append(f"ip route add {subnet}/{mask} dev eth{i} 2>/dev/null || true")
+
+            config["interfaces"] = "\n".join(iface_cmds)
+        else:
+            raw_nets = device.get("networks") or ([device["network"]] if device.get("network") else [])
+            iface_cmds = []
+            for i, net_id in enumerate(raw_nets):
+                net = next((n for n in networks if n["id"] == net_id), None)
+                if not net:
+                    continue
+                cfg = net.get("config", {})
+                ip, mask, subnet = cfg.get("gateway"), cfg.get("mask", "24"), cfg.get("subnet")
+                if ip:
+                    iface_cmds.append(f"ip addr add {ip}/{mask} dev eth{i} 2>/dev/null || true")
+                    iface_cmds.append(f"ip link set eth{i} up")
+                    if subnet:
+                        iface_cmds.append(f"ip route add {subnet}/{mask} dev eth{i} 2>/dev/null || true")
+            if iface_cmds:
+                first_ip = next((n.get("config", {}).get("gateway") for n in
+                                 [next((n for n in networks if n["id"] == rid), None)
+                                  for rid in raw_nets] if n), None)
+                config.setdefault("ip_address", first_ip or "")
+                config["interfaces"] = "\n".join(iface_cmds)
 
     template_path = TEMPLATES_DIR / device_type
     if not template_path.exists():
@@ -76,10 +114,13 @@ def _device_to_compose_service(device: dict, networks: list[dict]) -> dict:
     device_id = device["id"]
     device_type = device["type"]
     config = device.get("config", {})
-    device_network = device.get("network")
+
+    # Support both old single `network` string and new `networks` array
+    raw = device.get("networks") or ([device["network"]] if device.get("network") else [])
+    device_network_ids: list[str] = [n for n in raw if n]
 
     service: dict = {
-        "build": {"context": f"./{device_id}"},
+        "build": {"context": f"./output/{device_id}"},
         "container_name": device_id,
         "hostname": config.get("hostname", device_id),
         "cap_add": ["NET_ADMIN", "SYS_ADMIN"],
@@ -90,19 +131,20 @@ def _device_to_compose_service(device: dict, networks: list[dict]) -> dict:
         service["privileged"] = True
         service["sysctls"] = {"net.ipv4.ip_forward": 1}
 
-    # Attach to the right network(s)
-    if device_network:
-        network_cfg = next((n for n in networks if n["id"] == device_network), None)
-        network_entry: dict = {}
-        if network_cfg and config.get("ip_address"):
-            network_entry["ipv4_address"] = config["ip_address"]
-        service["networks"] = {device_network: network_entry if network_entry else None}
-    else:
-        # Device with no network (e.g. core router) — attach to all networks
-        all_nets = {n["id"]: None for n in networks}
-        if all_nets:
-            service["networks"] = all_nets
-
+    if device_network_ids:
+        service["networks"] = {}
+        for net_id in device_network_ids:
+            net = next((n for n in networks if n["id"] == net_id), None)
+            net_cfg = net.get("config", {}) if net else {}
+            entry: dict = {}
+            # Routers get no static IP in compose — Docker owns the gateway IP on the bridge.
+            # The actual routing IPs are configured inside the container via init.sh.
+            if device_type == "router":
+                pass
+            elif config.get("ip_address"):
+                entry["ipv4_address"] = config["ip_address"]
+            service["networks"][net_id] = entry if entry else None
+    
     return service
 
 
@@ -119,7 +161,7 @@ def generate(topology: dict) -> str:
 
     services = {}
     for device in devices:
-        _build_device_context(device, OUTPUT_DIR)
+        _build_device_context(device, OUTPUT_DIR, networks)
         services[device["id"]] = _device_to_compose_service(device, networks)
 
     compose_networks = {n["id"]: _network_to_compose_entry(n) for n in networks}
@@ -176,3 +218,17 @@ def _dict_to_yaml(obj: Any, lines: list, indent: int) -> None:
                         lines.append(f"{prefix}{k}: {v}")
             else:
                 lines.append(f"{pad}- {item}")
+
+if __name__ == "__main__":
+    # Python program to demonstrate
+    # Conversion of JSON data to
+    # dictionary
+
+    # importing the module
+    import json
+
+    # Opening JSON file
+    with open('/Users/joselopes/Desktop/vno-topology-1777672840623.json') as json_file:
+        data = json.load(json_file)
+
+        generate(data)
