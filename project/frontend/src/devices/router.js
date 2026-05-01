@@ -21,13 +21,6 @@ const router = {
       required: true,
     },
     {
-      key: 'ip_address',
-      label: 'IP Address',
-      type: 'text',
-      placeholder: '10.0.0.1',
-      required: true,
-    },
-    {
       key: 'subnet_mask',
       label: 'Subnet Mask',
       type: 'text',

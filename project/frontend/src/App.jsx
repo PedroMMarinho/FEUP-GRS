@@ -11,6 +11,7 @@ import 'reactflow/dist/style.css';
 
 import DeviceNode from './nodes/DeviceNode';
 import NetworkNode from './nodes/NetworkNode';
+import RouterNode from './nodes/RouterNode';
 import Toolbar from './components/Toolbar';
 import ConfigSidebar from './components/ConfigSidebar';
 import DeviceSidebar from './components/DeviceSidebar';
@@ -21,6 +22,7 @@ import { buildTopology, downloadJSON, downloadPNG } from './utils/export';
 const NODE_TYPES = {
   deviceNode: DeviceNode,
   networkNode: NetworkNode,
+  routerNode: RouterNode,
 };
 
 // Define our color palettes for Light/Dark mode
@@ -131,13 +133,15 @@ export default function App() {
   const handleAdd = useCallback((type) => {
     const id = `${type}_${Math.random().toString(36).substr(2, 5)}`;
     const isNetwork = type === 'network';
-
+    const isRouter = type === 'router';
+    
     const newNode = {
       id,
-      type: isNetwork ? 'networkNode' : 'deviceNode',
+      type: isNetwork ? 'networkNode' : isRouter ? 'routerNode' : 'deviceNode',
       data: { type, config: {} },
       position: { x: 120 + Math.random() * 200, y: 80 + Math.random() * 150 },
       ...(isNetwork && { style: { width: 300, height: 220 } }),
+      ...(isRouter && { style: { width: 160, height: 120 } }),
     };
 
     setNodes((nds) => nds.concat(newNode));
@@ -159,17 +163,18 @@ export default function App() {
 
         setNodes((nds) => {
           const isNetwork = draggedDevice.type === 'network';
-          
+          const isRouter = draggedDevice.type === 'router';
           // Define what the ghost looks like (50% opacity, no pointer events)
           const ghostNode = {
             id: 'ghost-node',
-            type: isNetwork ? 'networkNode' : 'deviceNode',
+            type: isNetwork ? 'networkNode' : isRouter ? 'routerNode' : 'deviceNode',
             position,
             data: { type: draggedDevice.type, config: {} },
             style: { 
               opacity: 0.5, 
               pointerEvents: 'none', // Prevents the ghost from blocking drops!
-              ...(isNetwork && { width: 300, height: 220 }) 
+              ...(isNetwork && { width: 300, height: 220 }),
+              ...(isRouter && { width: 160, height: 120 })
             },
           };
 
@@ -198,6 +203,7 @@ export default function App() {
       });
 
       const isNetwork = draggedDevice.type === 'network';
+      const isRouter = draggedDevice.type === 'router';
       const id = `${draggedDevice.type}_${Math.random().toString(36).substr(2, 5)}`;
 
       let parentNodeId = undefined;
@@ -229,11 +235,11 @@ export default function App() {
 
       const newNode = {
         id,
-        type: isNetwork ? 'networkNode' : 'deviceNode',
+        type: isNetwork ? 'networkNode' : isRouter ? 'routerNode' : 'deviceNode',
         position: finalPosition, // Use our newly calculated position
         data: { type: draggedDevice.type, config: {} },
         ...(isNetwork && { style: { width: 300, height: 220 } }),
-        
+        ...(isRouter && { style: { width: 160, height: 120 } }),
         ...(parentNodeId && { 
           parentNode: parentNodeId, 
           extent: 'parent' 
@@ -275,6 +281,16 @@ export default function App() {
     const topology = buildTopology(nodes, edges);
     downloadJSON(topology);
   }, [nodes, edges]);
+
+  const handleNetworkConfigChange = useCallback((networkId, field, value) => {
+  setNodes((nds) =>
+    nds.map((node) =>
+      node.id === networkId
+        ? { ...node, data: { ...node.data, config: { ...node.data.config, [field]: value } } }
+        : node
+    )
+  );
+  }, []);
 
   // Dynamic Styles Object based on current theme
   const dynamicStyles = {
@@ -466,7 +482,8 @@ export default function App() {
             selectedNode={selectedNode}
             onConfigChange={handleConfigChange}
             onDelete={handleDelete}
-            // You might want to pass isDarkMode here so the sidebar components match!
+            nodes={nodes}
+            edges={edges}
             isDarkMode={isDarkMode} 
             theme={theme}
           />
