@@ -11,54 +11,249 @@ import 'reactflow/dist/style.css';
 
 import DeviceNode from './nodes/DeviceNode';
 import NetworkNode from './nodes/NetworkNode';
+import RouterNode from './nodes/RouterNode';
 import Toolbar from './components/Toolbar';
 import ConfigSidebar from './components/ConfigSidebar';
-import { buildTopology, downloadJSON } from './utils/export';
+import DeviceSidebar from './components/DeviceSidebar';
 import { EXAMPLE_NODES, EXAMPLE_EDGES } from './utils/exampleTopology';
+import { buildTopology, downloadJSON, downloadPNG } from './utils/export';
 
-// Register custom node types once (outside component to avoid re-creation)
+// Register custom node types once
 const NODE_TYPES = {
   deviceNode: DeviceNode,
   networkNode: NetworkNode,
+  routerNode: RouterNode,
+};
+
+// Define our color palettes for Light/Dark mode
+const themes = {
+  dark: {
+    rootBg: '#080c14',
+    canvasBg: '#0d1117',
+    sidebarBg: '#0a0e1a',
+    borderColor: '#1e2438',
+    edgeColor: '#2d3348',
+    emptyTitle: '#2d3348',
+    emptyDesc: '#1e2438',
+    controlsBg: '#131929',
+    minimapMask: '#0d111788',
+    textMain: '#f8fafc', // Crisp white
+    textMuted: '#64748b', // Slate grey
+    accentBg: '#f8fafc', // White button in dark mode
+    accentText: '#0f172a', // Dark text on white button
+    accentMain: '#22c55e', // Terminal Green
+    accentHover: '#16a34a', // Slightly darker green for hover states
+  },
+  light: {
+    rootBg: '#f8fafc',
+    canvasBg: '#ffffff',
+    sidebarBg: '#f1f5f9',
+    borderColor: '#e2e8f0',
+    edgeColor: '#94a3b8',
+    emptyTitle: '#94a3b8',
+    emptyDesc: '#cbd5e1',
+    controlsBg: '#ffffff',
+    minimapMask: '#ffffff88',
+    textMain: '#0f172a', // Near black
+    textMuted: '#94a3b8', // Light slate
+    accentBg: '#0f172a', // Dark button in light mode
+    accentText: '#f8fafc', // White text on dark button
+    accentMain: '#16a34a', // Slightly darker for light mode contrast
+    accentHover: '#15803d',
+  }
 };
 
 export default function App() {
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
   const [selectedNodeId, setSelectedNodeId] = useState(null);
+  
+  const [reactFlowInstance, setReactFlowInstance] = useState(null);
+  const [draggedDevice, setDraggedDevice] = useState(null);
+
+  React.useEffect(() => {
+    if (!draggedDevice) {
+      setNodes((nds) => nds.filter((n) => n.id !== 'ghost-node'));
+    }
+  }, [draggedDevice, setNodes]);
+
+  // Theme State
+  const [isDarkMode, setIsDarkMode] = useState(true);
+  const theme = isDarkMode ? themes.dark : themes.light;
+
+  const [leftPanelWidth, setLeftPanelWidth] = useState(220);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const handleExportJSON = useCallback(() => {
+    const topology = buildTopology(nodes, edges);
+    downloadJSON(topology);
+  }, [nodes, edges]);
+
+  const handleExportPNG = useCallback(() => {
+    downloadPNG(theme.canvasBg);
+  }, [theme.canvasBg]);
+
+  const startResizing = React.useCallback(() => setIsDragging(true), []);
+  const stopResizing = React.useCallback(() => setIsDragging(false), []);
+
+  const resize = React.useCallback((mouseMoveEvent) => {
+    if (isDragging) {
+      let newWidth = mouseMoveEvent.clientX;
+      if (newWidth > 400) newWidth = 400; // Max width limit
+      setLeftPanelWidth(newWidth);
+    }
+  }, [isDragging]);
+
+  React.useEffect(() => {
+    window.addEventListener("mousemove", resize);
+    window.addEventListener("mouseup", stopResizing);
+    return () => {
+      window.removeEventListener("mousemove", resize);
+      window.removeEventListener("mouseup", stopResizing);
+    };
+  }, [resize, stopResizing]);
 
   // React Flow change handlers
   const onNodesChange = useCallback((changes) => setNodes((nds) => applyNodeChanges(changes, nds)), []);
   const onEdgesChange = useCallback((changes) => setEdges((eds) => applyEdgeChanges(changes, eds)), []);
-  const onConnect = useCallback((params) => setEdges((eds) => addEdge({ ...params, animated: false, style: { stroke: '#2d3348', strokeWidth: 2 } }, eds)), []);
+  
+  // Updated to use dynamic theme color for new edges
+  const onConnect = useCallback((params) => setEdges((eds) => 
+    addEdge({ ...params, animated: false, style: { stroke: theme.edgeColor, strokeWidth: 2 } }, eds)
+  ), [theme]);
 
   const onNodeClick = useCallback((_, node) => setSelectedNodeId(node.id), []);
   const onPaneClick = useCallback(() => setSelectedNodeId(null), []);
 
-  // Derive selectedNode from id so it's always fresh after config edits
   const selectedNode = useMemo(
     () => nodes.find((n) => n.id === selectedNodeId) || null,
     [nodes, selectedNodeId]
   );
 
-  // Add a new node to the canvas
   const handleAdd = useCallback((type) => {
     const id = `${type}_${Math.random().toString(36).substr(2, 5)}`;
     const isNetwork = type === 'network';
-
+    const isRouter = type === 'router';
+    
     const newNode = {
       id,
-      type: isNetwork ? 'networkNode' : 'deviceNode',
+      type: isNetwork ? 'networkNode' : isRouter ? 'routerNode' : 'deviceNode',
       data: { type, config: {} },
       position: { x: 120 + Math.random() * 200, y: 80 + Math.random() * 150 },
       ...(isNetwork && { style: { width: 300, height: 220 } }),
+      ...(isRouter && { style: { width: 160, height: 120 } }),
     };
 
     setNodes((nds) => nds.concat(newNode));
     setSelectedNodeId(id);
   }, []);
 
-  // Update a single config field on the selected node
+  // 1. As you drag over the canvas, move the Ghost Node
+  const onDragOver = useCallback(
+    (event) => {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+
+      if (reactFlowInstance && draggedDevice) {
+        // Calculate exact canvas coordinates
+        const position = reactFlowInstance.screenToFlowPosition({
+          x: event.clientX,
+          y: event.clientY,
+        });
+
+        setNodes((nds) => {
+          const isNetwork = draggedDevice.type === 'network';
+          const isRouter = draggedDevice.type === 'router';
+          // Define what the ghost looks like (50% opacity, no pointer events)
+          const ghostNode = {
+            id: 'ghost-node',
+            type: isNetwork ? 'networkNode' : isRouter ? 'routerNode' : 'deviceNode',
+            position,
+            data: { type: draggedDevice.type, config: {} },
+            style: { 
+              opacity: 0.5, 
+              pointerEvents: 'none', // Prevents the ghost from blocking drops!
+              ...(isNetwork && { width: 300, height: 220 }),
+              ...(isRouter && { width: 160, height: 120 })
+            },
+          };
+
+          // If ghost exists, update it. If not, add it.
+          const existing = nds.find((n) => n.id === 'ghost-node');
+          return existing 
+            ? nds.map((n) => (n.id === 'ghost-node' ? ghostNode : n))
+            : [...nds, ghostNode];
+        });
+      }
+    },
+    [reactFlowInstance, draggedDevice, setNodes]
+  );
+
+
+  // 3. When you drop, turn the Ghost into a REAL node
+  const onDrop = useCallback(
+    (event) => {
+      event.preventDefault();
+
+      if (!draggedDevice || !reactFlowInstance) return;
+
+      const position = reactFlowInstance.screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      });
+
+      const isNetwork = draggedDevice.type === 'network';
+      const isRouter = draggedDevice.type === 'router';
+      const id = `${draggedDevice.type}_${Math.random().toString(36).substr(2, 5)}`;
+
+      let parentNodeId = undefined;
+      let finalPosition = position;
+
+      if (!isNetwork) {
+        const targetNetwork = nodes.find((n) => {
+          if (n.type !== 'networkNode') return false;
+          
+          const width = n.style?.width || 300;
+          const height = n.style?.height || 220;
+          
+          return (
+            position.x >= n.position.x &&
+            position.x <= n.position.x + width &&
+            position.y >= n.position.y &&
+            position.y <= n.position.y + height
+          );
+        });
+
+        if (targetNetwork) {
+          parentNodeId = targetNetwork.id;
+          finalPosition = {
+            x: position.x - targetNetwork.position.x,
+            y: position.y - targetNetwork.position.y,
+          };
+        }
+      }
+
+      const newNode = {
+        id,
+        type: isNetwork ? 'networkNode' : isRouter ? 'routerNode' : 'deviceNode',
+        position: finalPosition, // Use our newly calculated position
+        data: { type: draggedDevice.type, config: {} },
+        ...(isNetwork && { style: { width: 300, height: 220 } }),
+        ...(isRouter && { style: { width: 160, height: 120 } }),
+        ...(parentNodeId && { 
+          parentNode: parentNodeId, 
+          extent: 'parent' 
+        }),
+      };
+
+      setNodes((nds) => nds.filter((n) => n.id !== 'ghost-node').concat(newNode));
+      
+      setDraggedDevice(null);
+      setSelectedNodeId(id);
+    },
+    [reactFlowInstance, draggedDevice, nodes, setNodes]
+  );
+
   const handleConfigChange = useCallback((field, value) => {
     setNodes((nds) =>
       nds.map((node) =>
@@ -69,33 +264,165 @@ export default function App() {
     );
   }, [selectedNodeId]);
 
-  // Delete selected node and its connected edges
   const handleDelete = useCallback(() => {
-    setNodes((nds) => nds.filter((n) => n.id !== selectedNodeId));
-    setEdges((eds) => eds.filter((e) => e.source !== selectedNodeId && e.target !== selectedNodeId));
-    setSelectedNodeId(null);
-  }, [selectedNodeId]);
+    if (reactFlowInstance && selectedNodeId) {
+      reactFlowInstance.deleteElements({ nodes: [{ id: selectedNodeId }] });
+      setSelectedNodeId(null);
+    }
+  }, [reactFlowInstance, selectedNodeId]);
 
-  // Load the pre-built example topology, replacing whatever is on the canvas
   const handleLoadExample = useCallback(() => {
     setNodes(EXAMPLE_NODES);
     setEdges(EXAMPLE_EDGES);
     setSelectedNodeId(null);
   }, []);
 
-  // Build topology and trigger download
   const handleExport = useCallback(() => {
     const topology = buildTopology(nodes, edges);
     downloadJSON(topology);
   }, [nodes, edges]);
 
-  return (
-    <div style={styles.root}>
-      <Toolbar onAdd={handleAdd} onExport={handleExport} onLoadExample={handleLoadExample} />
+  const handleNetworkConfigChange = useCallback((networkId, field, value) => {
+  setNodes((nds) =>
+    nds.map((node) =>
+      node.id === networkId
+        ? { ...node, data: { ...node.data, config: { ...node.data.config, [field]: value } } }
+        : node
+    )
+  );
+  }, []);
 
-      <div style={styles.body}>
+  // Dynamic Styles Object based on current theme
+  const dynamicStyles = {
+    root: {
+      width: '100vw',
+      height: '100vh',
+      display: 'flex',
+      flexDirection: 'column',
+      background: theme.rootBg,
+      fontFamily: "'DM Mono', 'Fira Mono', monospace",
+      transition: 'background 0.3s ease',
+    },
+    body: {
+      flexGrow: 1,
+      display: 'flex',
+      overflow: 'hidden',
+      userSelect: isDragging ? 'none' : 'auto',
+    },
+    canvas: {
+      flexGrow: 1,
+      position: 'relative',
+      background: theme.canvasBg,
+      transition: 'background 0.3s ease',
+    },
+    sidebar: {
+      width: 280,
+      background: theme.sidebarBg,
+      borderLeft: `1px solid ${theme.borderColor}`,
+      flexShrink: 0,
+      overflowY: 'auto',
+      transition: 'background 0.3s ease, border-color 0.3s ease',
+    },
+    emptyHint: {
+      position: 'absolute',
+      top: '50%',
+      left: '50%',
+      transform: 'translate(-50%, -50%)',
+      textAlign: 'center',
+      pointerEvents: 'none',
+    },
+    emptyTitle: {
+      color: theme.emptyTitle,
+      fontSize: 22,
+      fontWeight: 700,
+      fontFamily: 'monospace',
+    },
+    emptyDesc: {
+      color: theme.emptyDesc,
+      fontSize: 13,
+      marginTop: 6,
+      fontFamily: 'monospace',
+    },
+    themeToggle: {
+      position: 'absolute',
+      bottom: 20,
+      left: 20,
+      zIndex: 10,
+      padding: '8px 12px',
+      background: theme.controlsBg,
+      border: `1px solid ${theme.borderColor}`,
+      color: isDarkMode ? '#fff' : '#000',
+      borderRadius: 8,
+      cursor: 'pointer',
+      fontFamily: 'monospace',
+    },
+    leftSidebar: {
+      width: leftPanelWidth,
+      background: theme.sidebarBg,
+      borderRight: leftPanelWidth > 0 ? `1px solid ${theme.borderColor}` : 'none', 
+      flexShrink: 0,
+      position: 'relative', 
+      display: 'flex',
+      overflow: 'visible', 
+      transition: isDragging ? 'none' : 'width 0.2s ease', 
+    },
+    resizer: {
+      position: 'absolute',
+      right: -4, 
+      top: 0,
+      bottom: 0,
+      width: 8, 
+      cursor: 'col-resize', 
+      background: isDragging ? theme.accentMain : 'transparent', // <--- The Terminal Green is back!
+      zIndex: 10,
+      transition: 'background 0.2s ease',
+    },
+  };
+
+  return (
+    <div style={dynamicStyles.root}>
+      <Toolbar 
+        onAdd={handleAdd} 
+        onExportJSON={handleExportJSON} 
+        onExportPNG={handleExportPNG} 
+        onLoadExample={handleLoadExample}
+        isDarkMode={isDarkMode}
+        toggleTheme={() => setIsDarkMode(!isDarkMode)}
+        theme={theme}
+    />
+
+      <div style={dynamicStyles.body}>
+        
+        {/* --- LEFT PANEL --- */}
+        <div style={dynamicStyles.leftSidebar}>
+          {/* Removed minWidth so it safely shrinks to 0 without spilling out */}
+          <div style={{ width: '100%', flexShrink: 0, height: '100%', overflow: 'hidden' }}>
+            <DeviceSidebar onAdd={handleAdd}
+            theme={theme}
+            isDarkMode={isDarkMode}
+            setDraggedDevice={setDraggedDevice} 
+            />
+          </div>
+          
+          {/* THE DRAG HANDLE */}
+          <div 
+            style={dynamicStyles.resizer} 
+            onMouseDown={startResizing} 
+          />
+        </div>
+
+
         {/* Canvas */}
-        <div style={styles.canvas}>
+        <div style={dynamicStyles.canvas}>
+
+          <style>{`
+            .react-flow__node-deviceNode img,
+            .react-flow__node-networkNode img {
+               filter: ${isDarkMode ? 'invert(1)' : 'none'};
+               transition: filter 0.3s ease;
+            }
+          `}</style>
+
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -106,100 +433,62 @@ export default function App() {
             onNodeClick={onNodeClick}
             onPaneClick={onPaneClick}
             fitView
-            deleteKeyCode="Delete"
+            deleteKeyCode={['Backspace', 'Delete']}
+            onNodesDelete={(deletedNodes) => {
+              if (deletedNodes.some((n) => n.id === selectedNodeId)) {
+                setSelectedNodeId(null);
+              }
+            }}
             proOptions={{ hideAttribution: true }}
+            onInit={setReactFlowInstance}
+            onDrop={onDrop}
+            onDragOver={onDragOver}
           >
-            <Background color="#1e2438" gap={24} size={1} />
-            <Controls style={controlsStyle} />
+            <Background color={theme.textMuted} gap={24} size={1.2} />
+            
+            <Controls 
+              position="bottom-left" 
+              style={{ 
+                left: 15, 
+                background: theme.controlsBg, 
+                border: `1px solid ${theme.borderColor}`, 
+                borderRadius: 8, 
+                overflow: 'hidden' 
+              }} 
+            />
+            
             <MiniMap
-              style={minimapStyle}
+              style={{ background: theme.canvasBg, border: `1px solid ${theme.borderColor}`, borderRadius: 8, overflow: 'hidden' }}
               nodeColor={(n) => {
                 const type = n.data?.type;
                 const colorMap = { router: '#e05c2a', switch: '#2a7be0', host: '#2ab068', network: '#7c3aed' };
-                return colorMap[type] || '#4a5568';
+                return colorMap[type] || theme.borderColor;
               }}
-              maskColor="#0d111788"
+              maskColor={theme.minimapMask}
             />
           </ReactFlow>
 
-          {/* Empty state hint */}
           {nodes.length === 0 && (
-            <div style={styles.emptyHint}>
-              <div style={styles.emptyTitle}>Empty canvas</div>
-              <div style={styles.emptyDesc}>Use the toolbar above to add devices and networks</div>
+            <div style={dynamicStyles.emptyHint}>
+              <div style={dynamicStyles.emptyTitle}>Empty canvas</div>
+              <div style={dynamicStyles.emptyDesc}>Use the toolbar above to add devices and networks</div>
             </div>
           )}
         </div>
 
         {/* Sidebar */}
-        <div style={styles.sidebar}>
+        <div style={dynamicStyles.sidebar}>
           <ConfigSidebar
             selectedNode={selectedNode}
             onConfigChange={handleConfigChange}
             onDelete={handleDelete}
+            nodes={nodes}
+            edges={edges}
+            isDarkMode={isDarkMode} 
+            theme={theme}
           />
         </div>
       </div>
     </div>
   );
 }
-
-const styles = {
-  root: {
-    width: '100vw',
-    height: '100vh',
-    display: 'flex',
-    flexDirection: 'column',
-    background: '#080c14',
-    fontFamily: "'DM Mono', 'Fira Mono', monospace",
-  },
-  body: {
-    flexGrow: 1,
-    display: 'flex',
-    overflow: 'hidden',
-  },
-  canvas: {
-    flexGrow: 1,
-    position: 'relative',
-    background: '#0d1117',
-  },
-  sidebar: {
-    width: 280,
-    background: '#0a0e1a',
-    borderLeft: '1px solid #1e2438',
-    flexShrink: 0,
-    overflowY: 'auto',
-  },
-  emptyHint: {
-    position: 'absolute',
-    top: '50%',
-    left: '50%',
-    transform: 'translate(-50%, -50%)',
-    textAlign: 'center',
-    pointerEvents: 'none',
-  },
-  emptyTitle: {
-    color: '#2d3348',
-    fontSize: 22,
-    fontWeight: 700,
-    fontFamily: 'monospace',
-  },
-  emptyDesc: {
-    color: '#1e2438',
-    fontSize: 13,
-    marginTop: 6,
-    fontFamily: 'monospace',
-  },
-};
-
-const controlsStyle = {
-  background: '#131929',
-  border: '1px solid #1e2438',
-  borderRadius: 8,
-};
-
-const minimapStyle = {
-  background: '#0d1117',
-  border: '1px solid #1e2438',
-  borderRadius: 8,
-};

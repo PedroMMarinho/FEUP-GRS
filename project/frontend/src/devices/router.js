@@ -1,20 +1,14 @@
 // Each device file exports a single definition object.
 // To add a new device: copy this file, change the values, and import it in devices/index.js
 
+import routerIcon from '../assets/router.svg';
+
 const router = {
   type: 'router',
   label: 'Router',
   color: '#e05c2a',          // accent color used for icon bg, border highlights
   textColor: '#ffffff',
-  icon: `
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <rect x="2" y="9" width="20" height="6" rx="1"/>
-      <line x1="6" y1="12" x2="6" y2="12.01"/>
-      <line x1="10" y1="12" x2="10" y2="12.01"/>
-      <line x1="14" y1="7" x2="14" y2="9"/>
-      <line x1="14" y1="15" x2="14" y2="17"/>
-    </svg>
-  `,
+  icon: `<img src="${routerIcon}" style="width: 100%; height: 100%; object-fit: contain;" alt="Router" />`,
 
   // Configuration fields shown in the sidebar when this node is selected.
   // type: 'text' | 'select' | 'checkbox'
@@ -24,13 +18,6 @@ const router = {
       label: 'Hostname',
       type: 'text',
       placeholder: 'router-01',
-      required: true,
-    },
-    {
-      key: 'ip_address',
-      label: 'IP Address',
-      type: 'text',
-      placeholder: '10.0.0.1',
       required: true,
     },
     {
