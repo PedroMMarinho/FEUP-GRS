@@ -14,8 +14,8 @@ import NetworkNode from './nodes/NetworkNode';
 import Toolbar from './components/Toolbar';
 import ConfigSidebar from './components/ConfigSidebar';
 import DeviceSidebar from './components/DeviceSidebar';
-import { buildTopology, downloadJSON } from './utils/export';
 import { EXAMPLE_NODES, EXAMPLE_EDGES } from './utils/exampleTopology';
+import { buildTopology, downloadJSON, downloadPNG } from './utils/export';
 
 // Register custom node types once
 const NODE_TYPES = {
@@ -82,6 +82,15 @@ export default function App() {
   const [leftPanelWidth, setLeftPanelWidth] = useState(220);
   const [isDragging, setIsDragging] = useState(false);
 
+  const handleExportJSON = useCallback(() => {
+    const topology = buildTopology(nodes, edges);
+    downloadJSON(topology);
+  }, [nodes, edges]);
+
+  const handleExportPNG = useCallback(() => {
+    downloadPNG(theme.canvasBg);
+  }, [theme.canvasBg]);
+  
   const startResizing = React.useCallback(() => setIsDragging(true), []);
   const stopResizing = React.useCallback(() => setIsDragging(false), []);
 
@@ -327,12 +336,13 @@ export default function App() {
   return (
     <div style={dynamicStyles.root}>
       <Toolbar 
-      onAdd={handleAdd} 
-      onExport={handleExport} 
-      onLoadExample={handleLoadExample}
-      isDarkMode={isDarkMode}
-      toggleTheme={() => setIsDarkMode(!isDarkMode)}
-      theme={theme}
+        onAdd={handleAdd} 
+        onExportJSON={handleExportJSON} 
+        onExportPNG={handleExportPNG} 
+        onLoadExample={handleLoadExample}
+        isDarkMode={isDarkMode}
+        toggleTheme={() => setIsDarkMode(!isDarkMode)}
+        theme={theme}
     />
 
       <div style={dynamicStyles.body}>

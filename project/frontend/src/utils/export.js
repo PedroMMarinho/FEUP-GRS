@@ -1,5 +1,5 @@
 // Converts the React Flow graph state into the topology JSON consumed by the backend.
-
+import { toPng } from 'html-to-image';
 /**
  * Builds a serializable topology object from nodes and edges.
  * Network nodes that contain other nodes are represented with a `members` array.
@@ -52,4 +52,35 @@ export function downloadJSON(topology) {
   a.download = `vno-topology-${Date.now()}.json`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+export function downloadPNG(backgroundColor) {
+  const flowElement = document.querySelector('.react-flow');
+
+  if (!flowElement) {
+    console.error("Could not find the React Flow canvas to export.");
+    return;
+  }
+
+  toPng(flowElement, {
+    backgroundColor: backgroundColor, 
+    filter: (node) => {
+      if (
+        node?.classList?.contains('react-flow__minimap') ||
+        node?.classList?.contains('react-flow__controls')
+      ) {
+        return false;
+      }
+      return true;
+    },
+  })
+    .then((dataUrl) => {
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = `netcompose-topology-${Date.now()}.png`;
+      a.click();
+    })
+    .catch((err) => {
+      console.error('Failed to export PNG', err);
+    });
 }
