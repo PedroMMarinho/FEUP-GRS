@@ -90,7 +90,7 @@ export default function App() {
   const handleExportPNG = useCallback(() => {
     downloadPNG(theme.canvasBg);
   }, [theme.canvasBg]);
-  
+
   const startResizing = React.useCallback(() => setIsDragging(true), []);
   const stopResizing = React.useCallback(() => setIsDragging(false), []);
 
@@ -200,22 +200,52 @@ export default function App() {
       const isNetwork = draggedDevice.type === 'network';
       const id = `${draggedDevice.type}_${Math.random().toString(36).substr(2, 5)}`;
 
+      let parentNodeId = undefined;
+      let finalPosition = position;
+
+      if (!isNetwork) {
+        const targetNetwork = nodes.find((n) => {
+          if (n.type !== 'networkNode') return false;
+          
+          const width = n.style?.width || 300;
+          const height = n.style?.height || 220;
+          
+          return (
+            position.x >= n.position.x &&
+            position.x <= n.position.x + width &&
+            position.y >= n.position.y &&
+            position.y <= n.position.y + height
+          );
+        });
+
+        if (targetNetwork) {
+          parentNodeId = targetNetwork.id;
+          finalPosition = {
+            x: position.x - targetNetwork.position.x,
+            y: position.y - targetNetwork.position.y,
+          };
+        }
+      }
+
       const newNode = {
         id,
         type: isNetwork ? 'networkNode' : 'deviceNode',
-        position,
+        position: finalPosition, // Use our newly calculated position
         data: { type: draggedDevice.type, config: {} },
         ...(isNetwork && { style: { width: 300, height: 220 } }),
+        
+        ...(parentNodeId && { 
+          parentNode: parentNodeId, 
+          extent: 'parent' 
+        }),
       };
 
-      // Strip out the ghost and inject the real node
       setNodes((nds) => nds.filter((n) => n.id !== 'ghost-node').concat(newNode));
       
-      // Reset drag state
       setDraggedDevice(null);
       setSelectedNodeId(id);
     },
-    [reactFlowInstance, draggedDevice, setNodes]
+    [reactFlowInstance, draggedDevice, nodes, setNodes]
   );
 
   const handleConfigChange = useCallback((field, value) => {

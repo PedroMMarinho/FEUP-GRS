@@ -49,7 +49,7 @@ export function downloadJSON(topology) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `vno-topology-${Date.now()}.json`;
+  a.download = `netcompose-topology-${Date.now()}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }
