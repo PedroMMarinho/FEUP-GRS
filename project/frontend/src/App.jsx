@@ -220,10 +220,11 @@ export default function App() {
   }, [selectedNodeId]);
 
   const handleDelete = useCallback(() => {
-    setNodes((nds) => nds.filter((n) => n.id !== selectedNodeId));
-    setEdges((eds) => eds.filter((e) => e.source !== selectedNodeId && e.target !== selectedNodeId));
-    setSelectedNodeId(null);
-  }, [selectedNodeId]);
+    if (reactFlowInstance && selectedNodeId) {
+      reactFlowInstance.deleteElements({ nodes: [{ id: selectedNodeId }] });
+      setSelectedNodeId(null);
+    }
+  }, [reactFlowInstance, selectedNodeId]);
 
   const handleLoadExample = useCallback(() => {
     setNodes(EXAMPLE_NODES);
@@ -376,7 +377,12 @@ export default function App() {
             onNodeClick={onNodeClick}
             onPaneClick={onPaneClick}
             fitView
-            deleteKeyCode="Delete"
+            deleteKeyCode={['Backspace', 'Delete']}
+            onNodesDelete={(deletedNodes) => {
+              if (deletedNodes.some((n) => n.id === selectedNodeId)) {
+                setSelectedNodeId(null);
+              }
+            }}
             proOptions={{ hideAttribution: true }}
             onInit={setReactFlowInstance}
             onDrop={onDrop}
