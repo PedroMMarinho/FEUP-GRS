@@ -1,0 +1,5 @@
+ConfigSideBar remover a cor do background dos nodes, and also the drag not being the same color.
+Fix drag and drop for the router node.
+Fix color of the router node when inserting to canvas.
+Fix the export png image taken, probably garantee its most approximate to the schema
+Add an import from a json file config.

@@ -3,3 +3,6 @@ labs/lab1/part1/nginx-logs/*
 labs/lab1/part1/traffic-captures/*
 .obsidian
 .DS_Store
+__pycache__
+project/backend/output
+.vscode/
