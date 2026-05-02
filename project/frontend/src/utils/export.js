@@ -20,6 +20,11 @@ export function buildTopology(nodes, edges) {
       deviceNetworksMap[node.id].add(visualMembershipMap[node.id]);
     }
   });
+
+  const cidrToMask = (bits) => {
+    const b = parseInt(bits, 10);
+    return [0,1,2,3].map((i) => 256 - Math.pow(2, 8 - Math.min(8, Math.max(0, b - i * 8)))).join('.');
+  };
  
   const topology = {
     version: '1.0',
@@ -41,6 +46,18 @@ export function buildTopology(nodes, edges) {
         const interfaces = baseConfig.interfaces || {};
         const firstIp = Object.values(interfaces).find((i) => i?.ip)?.ip || null;
         if (firstIp) baseConfig.ip_address = firstIp;
+      } else {
+        // For non-routers inside a NetworkNode, inject gateway + subnet_mask
+        // from the parent network config if not already explicitly set by the user
+        const parentNetId = visualMembershipMap[node.id];
+        if (parentNetId) {
+          const parentNet = networkNodes.find((n) => n.id === parentNetId);
+          const netCfg = parentNet?.data?.config || {};
+          if (!baseConfig.gateway && netCfg.gateway)
+            baseConfig.gateway = netCfg.gateway;
+          if (!baseConfig.subnet_mask && netCfg.mask)
+            baseConfig.subnet_mask = cidrToMask(netCfg.mask);
+        }
       }
  
       return {

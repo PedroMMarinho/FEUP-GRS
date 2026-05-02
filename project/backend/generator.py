@@ -1,19 +1,16 @@
-import os
 import re
 import shutil
 from pathlib import Path
 from typing import Any
+from collections import defaultdict
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 OUTPUT_DIR = Path(__file__).parent / "output"
 
-# Files in a template that should have placeholders rendered
 RENDERABLE_EXTENSIONS = {".sh", ".conf", ".env", ".txt", ".yml", ".yaml"}
 
 
 def _render(text: str, config: dict[str, Any]) -> str:
-    """Replace {{key}} and strip {{#flag}}...{{/flag}} blocks based on config booleans."""
-    # Handle conditional blocks {{#key}}...{{/key}}
     def replace_block(match):
         key = match.group(1)
         content = match.group(2)
@@ -23,27 +20,127 @@ def _render(text: str, config: dict[str, Any]) -> str:
         return content if value else ""
 
     text = re.sub(r"\{\{#(\w+)\}\}(.*?)\{\{/\1\}\}", replace_block, text, flags=re.DOTALL)
-
-    # Replace {{key}} tokens
     for key, value in config.items():
         text = text.replace("{{" + key + "}}", str(value) if value is not None else "")
-
     return text
 
 
-def _build_device_context(device: dict, output_dir: Path, networks: list[dict] = None) -> Path:
-    """Copy template for device type, render all files, return context path."""
+def _derive_networks(devices: list[dict], links: list[dict]) -> list[dict]:
+    """
+    Derive Docker networks purely from the link graph.
+    Each connected component (group of devices reachable through switches/hosts)
+    becomes one Docker bridge network.
+    Routers are boundaries — they connect components but don't merge them.
+    """
+    device_map = {d["id"]: d for d in devices}
+
+    # Build adjacency — exclude routers as bridge nodes (they sit between networks)
+    adj = defaultdict(set)
+    for link in links:
+        src, tgt = link["source"], link["target"]
+        src_type = device_map.get(src, {}).get("type")
+        tgt_type = device_map.get(tgt, {}).get("type")
+
+        # Only propagate connectivity through non-router nodes
+        if src_type != "router" and tgt_type != "router":
+            adj[src].add(tgt)
+            adj[tgt].add(src)
+
+    # Union-Find to group connected non-router devices
+    parent = {}
+
+    def find(x):
+        parent.setdefault(x, x)
+        if parent[x] != x:
+            parent[x] = find(parent[x])
+        return parent[x]
+
+    def union(a, b):
+        parent[find(a)] = find(b)
+
+    non_router_ids = [d["id"] for d in devices if d.get("type") != "router"]
+    for dev_id in non_router_ids:
+        find(dev_id)
+    for dev_id, neighbors in adj.items():
+        for nb in neighbors:
+            union(dev_id, nb)
+
+    # Group by component root
+    components = defaultdict(list)
+    for dev_id in non_router_ids:
+        components[find(dev_id)].append(dev_id)
+
+    # Build network definitions — one per component
+    derived = []
+    for i, (root, members) in enumerate(components.items()):
+        net_id = f"net_{i}"
+
+        # Try to get subnet info from any member's config or the first host found
+        subnet, mask, gateway = None, "24", None
+        for member_id in members:
+            dev = device_map[member_id]
+            cfg = dev.get("config", {})
+            if cfg.get("gateway"):
+                gateway = cfg["gateway"]
+            if cfg.get("subnet_mask"):
+                # Convert dotted mask to CIDR if needed
+                sm = cfg["subnet_mask"]
+                if "." in sm:
+                    mask = str(sum(bin(int(x)).count("1") for x in sm.split(".")))
+                else:
+                    mask = sm
+            if cfg.get("ip_address") and not subnet:
+                # Derive subnet from first host IP + mask
+                ip_parts = cfg["ip_address"].split(".")
+                m = int(mask)
+                locked = m // 8
+                subnet = ".".join(ip_parts[:locked]) + "." + ".".join(["0"] * (4 - locked))
+
+        derived.append({
+            "id": net_id,
+            "members": members,
+            "config": {
+                "subnet": subnet,
+                "mask": mask,
+                "gateway": gateway,
+            },
+            "_roots": {find(m) for m in members},
+            "_component_root": root,
+        })
+
+    # Attach routers to the networks they border
+    for dev in devices:
+        if dev.get("type") != "router":
+            continue
+        router_id = dev["id"]
+        for link in links:
+            src, tgt = link["source"], link["target"]
+            neighbor_id = tgt if src == router_id else (src if tgt == router_id else None)
+            if not neighbor_id:
+                continue
+            neighbor_type = device_map.get(neighbor_id, {}).get("type")
+            if neighbor_type == "router":
+                continue
+            neighbor_root = find(neighbor_id)
+            for net in derived:
+                if net["_component_root"] == neighbor_root:
+                    if router_id not in net["members"]:
+                        net["members"].append(router_id)
+
+    return derived
+
+
+def _build_device_context(device: dict, output_dir: Path, derived_networks: list[dict]) -> Path:
     device_id = device["id"]
     device_type = device["type"]
     config = dict(device.get("config", {}))
 
-    # For routers, build ip_address and interfaces from the exported interfaces map
-    if device_type == "router" and networks:
+    if device_type == "router":
         iface_map = config.get("interfaces") or {}
         if iface_map and isinstance(iface_map, dict):
-            ips   = [v["ip"]             for v in iface_map.values() if isinstance(v, dict) and v.get("ip")]
-            masks = [v.get("mask", "24") for v in iface_map.values() if isinstance(v, dict) and v.get("ip")]
-            subnets = [v.get("subnet")   for v in iface_map.values() if isinstance(v, dict) and v.get("ip")]
+            ips     = [v["ip"]             for v in iface_map.values() if isinstance(v, dict) and v.get("ip")]
+            masks   = [v.get("mask", "24") for v in iface_map.values() if isinstance(v, dict) and v.get("ip")]
+            subnets = [v.get("subnet")     for v in iface_map.values() if isinstance(v, dict) and v.get("ip")]
             config.setdefault("ip_address", ips[0] if ips else "")
 
             iface_cmds = []
@@ -52,28 +149,7 @@ def _build_device_context(device: dict, output_dir: Path, networks: list[dict] =
                 iface_cmds.append(f"ip link set eth{i} up")
                 if subnet:
                     iface_cmds.append(f"ip route add {subnet}/{mask} dev eth{i} 2>/dev/null || true")
-
             config["interfaces"] = "\n".join(iface_cmds)
-        else:
-            raw_nets = device.get("networks") or ([device["network"]] if device.get("network") else [])
-            iface_cmds = []
-            for i, net_id in enumerate(raw_nets):
-                net = next((n for n in networks if n["id"] == net_id), None)
-                if not net:
-                    continue
-                cfg = net.get("config", {})
-                ip, mask, subnet = cfg.get("gateway"), cfg.get("mask", "24"), cfg.get("subnet")
-                if ip:
-                    iface_cmds.append(f"ip addr add {ip}/{mask} dev eth{i} 2>/dev/null || true")
-                    iface_cmds.append(f"ip link set eth{i} up")
-                    if subnet:
-                        iface_cmds.append(f"ip route add {subnet}/{mask} dev eth{i} 2>/dev/null || true")
-            if iface_cmds:
-                first_ip = next((n.get("config", {}).get("gateway") for n in
-                                 [next((n for n in networks if n["id"] == rid), None)
-                                  for rid in raw_nets] if n), None)
-                config.setdefault("ip_address", first_ip or "")
-                config["interfaces"] = "\n".join(iface_cmds)
 
     template_path = TEMPLATES_DIR / device_type
     if not template_path.exists():
@@ -92,9 +168,40 @@ def _build_device_context(device: dict, output_dir: Path, networks: list[dict] =
     return context_path
 
 
-def _network_to_compose_entry(network: dict) -> dict:
-    """Turn a network definition into a docker-compose networks entry."""
-    cfg = network.get("config", {})
+def _device_to_compose_service(device: dict, derived_networks: list[dict]) -> dict:
+    device_id = device["id"]
+    device_type = device["type"]
+    config = device.get("config", {})
+
+    service: dict = {
+        "build": {"context": f"./{device_id}"},
+        "container_name": device_id,
+        "hostname": config.get("hostname", device_id),
+        "cap_add": ["NET_ADMIN", "SYS_ADMIN"],
+        "restart": "unless-stopped",
+    }
+
+    if device_type == "router":
+        service["privileged"] = True
+        service["sysctls"] = {"net.ipv4.ip_forward": 1}
+
+    # Find which derived networks this device belongs to
+    member_of = [n for n in derived_networks if device_id in n["members"]]
+
+    if member_of:
+        service["networks"] = {}
+        for net in member_of:
+            entry: dict = {}
+            # Routers get no static IP — configured inside container via init.sh
+            if device_type != "router" and config.get("ip_address"):
+                entry["ipv4_address"] = config["ip_address"]
+            service["networks"][net["id"]] = entry if entry else None
+
+    return service
+
+
+def _network_to_compose_entry(net: dict) -> dict:
+    cfg = net.get("config", {})
     entry: dict = {"driver": "bridge"}
 
     ipam_config: dict = {}
@@ -109,62 +216,21 @@ def _network_to_compose_entry(network: dict) -> dict:
     return entry
 
 
-def _device_to_compose_service(device: dict, networks: list[dict]) -> dict:
-    """Turn a device into a docker-compose service entry."""
-    device_id = device["id"]
-    device_type = device["type"]
-    config = device.get("config", {})
-
-    # Support both old single `network` string and new `networks` array
-    raw = device.get("networks") or ([device["network"]] if device.get("network") else [])
-    device_network_ids: list[str] = [n for n in raw if n]
-
-    service: dict = {
-        "build": {"context": f"./{device_id}"},
-        "container_name": device_id,
-        "hostname": config.get("hostname", device_id),
-        "cap_add": ["NET_ADMIN", "SYS_ADMIN"],
-        "restart": "unless-stopped",
-    }
-
-    if device_type == "router":
-        service["privileged"] = True
-        service["sysctls"] = {"net.ipv4.ip_forward": 1}
-
-    if device_network_ids:
-        service["networks"] = {}
-        for net_id in device_network_ids:
-            net = next((n for n in networks if n["id"] == net_id), None)
-            net_cfg = net.get("config", {}) if net else {}
-            entry: dict = {}
-            # Routers get no static IP in compose — Docker owns the gateway IP on the bridge.
-            # The actual routing IPs are configured inside the container via init.sh.
-            if device_type == "router":
-                pass
-            elif config.get("ip_address"):
-                entry["ipv4_address"] = config["ip_address"]
-            service["networks"][net_id] = entry if entry else None
-    
-    return service
-
-
 def generate(topology: dict) -> str:
-    """
-    Main entry point.
-    Accepts the topology JSON, renders all device contexts, and returns
-    the docker-compose.yml content as a string.
-    """
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     devices: list[dict] = topology.get("devices", [])
-    networks: list[dict] = topology.get("networks", [])
+    links:   list[dict] = topology.get("links", [])
+
+    # Derive Docker networks from link graph — ignore NetworkNode declarations
+    derived_networks = _derive_networks(devices, links)
 
     services = {}
     for device in devices:
-        _build_device_context(device, OUTPUT_DIR, networks)
-        services[device["id"]] = _device_to_compose_service(device, networks)
+        _build_device_context(device, OUTPUT_DIR, derived_networks)
+        services[device["id"]] = _device_to_compose_service(device, derived_networks)
 
-    compose_networks = {n["id"]: _network_to_compose_entry(n) for n in networks}
+    compose_networks = {n["id"]: _network_to_compose_entry(n) for n in derived_networks}
 
     compose = _build_yaml(services, compose_networks)
 
@@ -175,7 +241,6 @@ def generate(topology: dict) -> str:
 
 
 def _build_yaml(services: dict, networks: dict) -> str:
-    """Minimal YAML serialiser — avoids a PyYAML dependency for simple structures."""
     lines = ["services:"]
     for svc_name, svc in services.items():
         lines.append(f"  {svc_name}:")
@@ -228,7 +293,7 @@ if __name__ == "__main__":
     import json
 
     # Opening JSON file
-    with open('/Users/joselopes/Desktop/vno-topology-1777735735371.json') as json_file:
+    with open('/Users/joselopes/Desktop/vno-topology-1777741311532.json') as json_file:
         data = json.load(json_file)
 
         generate(data)
