@@ -23,7 +23,7 @@ export default function ConfigSidebar({ selectedNode, onConfigChange, onDelete, 
     <div style={styles.panel}>
       {/* Header */}
       <div style={styles.header}>
-        <div style={{ ...styles.iconBadge, background: def.color }}
+        <div style={{ ...styles.iconBadge }}
           dangerouslySetInnerHTML={{ __html: def.icon }}
         />
         <div>
@@ -233,7 +233,9 @@ const getStyles = (theme, isDarkMode) => ({
     justifyContent: 'center',
     filter: isDarkMode ? 'invert(1)' : 'none',
     flexShrink: 0,
-    color: '#ffffff', // Kept white so icon contrasts against dynamic device colors
+    userSelect: 'none',        // Prevents text selection highlighting
+    WebkitUserDrag: 'none',    // Stops Chrome/Safari from dragging the element
+    pointerEvents: 'none',     // Makes the mouse completely ignore the SVG, killing the ghost drag
   },
   deviceType: {
     fontSize: 16,
