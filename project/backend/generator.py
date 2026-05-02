@@ -120,7 +120,7 @@ def _device_to_compose_service(device: dict, networks: list[dict]) -> dict:
     device_network_ids: list[str] = [n for n in raw if n]
 
     service: dict = {
-        "build": {"context": f"./output/{device_id}"},
+        "build": {"context": f"./{device_id}"},
         "container_name": device_id,
         "hostname": config.get("hostname", device_id),
         "cap_add": ["NET_ADMIN", "SYS_ADMIN"],
@@ -228,7 +228,7 @@ if __name__ == "__main__":
     import json
 
     # Opening JSON file
-    with open('/Users/joselopes/Desktop/vno-topology-1777672840623.json') as json_file:
+    with open('/Users/joselopes/Desktop/vno-topology-1777735735371.json') as json_file:
         data = json.load(json_file)
 
         generate(data)
