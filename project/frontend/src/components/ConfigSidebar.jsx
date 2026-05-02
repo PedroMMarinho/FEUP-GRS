@@ -109,7 +109,7 @@ export default function ConfigSidebar({ selectedNode, onConfigChange, onDelete, 
         <>
           <div style={styles.divider} />
           <div style={styles.sectionLabel}>Interfaces</div>
-          <div style={{ padding: '10px 20px', fontSize: 11, color: '#3a4060', fontFamily: 'monospace' }}>
+          <div style={{ padding: '10px 20px', fontSize: 12, color: theme.textMuted, fontFamily: 'monospace' }}>
             Connect to networks to configure interfaces
           </div>
         </>
@@ -304,8 +304,8 @@ const getStyles = (theme, isDarkMode) => ({
     fontFamily: 'monospace',
     transition: 'all 0.15s',
   },
-  sectionLabel: { fontSize: 10, color: '#4a5568', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', padding: '10px 20px 0' },
-  interfaceBlock: { display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 12px', background: '#0d1117', borderRadius: 8, border: '1px solid #1e2438' },
+  sectionLabel: { fontSize: 12, color: theme.textMuted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', padding: '10px 20px 0' },
+  interfaceBlock: { display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 12px', background: theme.canvasBg, borderRadius: 8, border: '1px solid #1e2438' },
   interfaceHeader: { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 },
-  interfaceName: { fontSize: 11, color: '#a0aec0', fontFamily: 'monospace', fontWeight: 600 },
+  interfaceName: { fontSize: 11, color: theme.textMain, fontFamily: 'monospace', fontWeight: 600 },
 });

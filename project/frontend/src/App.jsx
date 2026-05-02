@@ -209,7 +209,7 @@ export default function App() {
       let parentNodeId = undefined;
       let finalPosition = position;
 
-      if (!isNetwork) {
+      if (!isNetwork && !isRouter) {
         const targetNetwork = nodes.find((n) => {
           if (n.type !== 'networkNode') return false;
           
@@ -438,11 +438,12 @@ export default function App() {
         <div style={dynamicStyles.canvas}>
 
           <style>{`
+            .react-flow__node-routerNode img,
             .react-flow__node-deviceNode img,
             .react-flow__node-networkNode img {
                filter: ${isDarkMode ? 'invert(1)' : 'none'};
                transition: filter 0.3s ease;
-            }
+            },
           `}</style>
 
           <ReactFlow
