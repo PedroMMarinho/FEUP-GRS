@@ -1,5 +1,6 @@
 // Converts the React Flow graph state into the topology JSON consumed by the backend.
 import { toPng } from 'html-to-image';
+import { getRectOfNodes, getTransformForBounds } from 'reactflow';
 /**
  * Builds a serializable topology object from nodes and edges.
  * Network nodes that contain other nodes are represented with a `members` array.
@@ -220,24 +221,44 @@ export function downloadJSON(topology) {
   URL.revokeObjectURL(url);
 }
 
-export function downloadPNG(backgroundColor) {
-  const flowElement = document.querySelector('.react-flow');
+export function downloadPNG(reactFlowInstance, backgroundColor) {
+  // Target the viewport specifically so we can manipulate the transform matrix
+  const viewportElement = document.querySelector('.react-flow__viewport');
 
-  if (!flowElement) {
+  if (!viewportElement || !reactFlowInstance) {
     console.error("Could not find the React Flow canvas to export.");
     return;
   }
 
-  toPng(flowElement, {
-    backgroundColor: backgroundColor, 
-    filter: (node) => {
-      if (
-        node?.classList?.contains('react-flow__minimap') ||
-        node?.classList?.contains('react-flow__controls')
-      ) {
-        return false;
-      }
-      return true;
+  const nodes = reactFlowInstance.getNodes();
+  if (nodes.length === 0) return;
+
+  // 1. Calculate the bounding box of all nodes
+  const nodesBounds = getRectOfNodes(nodes);
+
+  // 2. Add some padding around the edges
+  const padding = 50;
+  const imageWidth = nodesBounds.width + padding * 2;
+  const imageHeight = nodesBounds.height + padding * 2;
+
+  // 3. Calculate the perfect transform to fit everything (returns [x, y, zoom])
+  const transform = getTransformForBounds(
+    nodesBounds,
+    imageWidth,
+    imageHeight,
+    0.5, // min zoom
+    2    // max zoom
+  );
+
+  toPng(viewportElement, {
+    backgroundColor: backgroundColor,
+    width: imageWidth,
+    height: imageHeight,
+    style: {
+      width: `${imageWidth}px`,
+      height: `${imageHeight}px`,
+      // 4. Temporarily force the viewport to perfectly frame the schema during export!
+      transform: `translate(${transform[0]}px, ${transform[1]}px) scale(${transform[2]})`,
     },
   })
     .then((dataUrl) => {

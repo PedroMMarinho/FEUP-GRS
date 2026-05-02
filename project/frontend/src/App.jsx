@@ -84,8 +84,10 @@ export default function App() {
   }, [nodes, edges]);
 
   const handleExportPNG = useCallback(() => {
-    downloadPNG(theme.canvasBg);
-  }, [theme.canvasBg]);
+    if (reactFlowInstance) {
+      downloadPNG(reactFlowInstance, theme.canvasBg);
+    }
+  }, [reactFlowInstance, theme.canvasBg]);
 
   const startResizing = React.useCallback(() => setIsDragging(true), []);
   const stopResizing = React.useCallback(() => setIsDragging(false), []);
