@@ -1,8 +1,9 @@
 import React from 'react';
 import { DEVICE_MAP } from '../devices';
-
+ 
 export default function ConfigSidebar({ selectedNode, onConfigChange, onDelete, isDarkMode, theme, nodes, edges, onNetworkConfigChange }) {
   const styles = getStyles(theme, isDarkMode);
+ 
   if (!selectedNode) {
     return (
       <div style={styles.empty}>
@@ -11,29 +12,45 @@ export default function ConfigSidebar({ selectedNode, onConfigChange, onDelete, 
       </div>
     );
   }
-
+ 
   const def = DEVICE_MAP[selectedNode.data.type];
   const config = selectedNode.data.config || {};
   const isRouter = selectedNode.data.type === 'router';
-
-  // Find networks connected to this router (via edges to devices inside networks, or directly)
-  const connectedNetworks = isRouter ? getConnectedNetworks(selectedNode.id, nodes, edges) : [];
-
+ 
+  // Direct connections only — excludes networkNodes (they have no handles now)
+  const connectedNodes = isRouter
+    ? edges
+        .filter((e) => e.source === selectedNode.id || e.target === selectedNode.id)
+        .map((e) => {
+          const otherId = e.source === selectedNode.id ? e.target : e.source;
+          return nodes.find((n) => n.id === otherId);
+        })
+        .filter((n) => n && n.type !== 'networkNode')
+    : [];
+ 
+  // Handler: writes into router's config.interfaces.<nodeId>.field
+  const handleIfaceChange = (nodeId, field, value) => {
+    const current = config.interfaces || {};
+    const updated = {
+      ...current,
+      [nodeId]: { ...(current[nodeId] || {}), [field]: value },
+    };
+    onConfigChange('interfaces', updated);
+  };
+ 
   return (
     <div style={styles.panel}>
       {/* Header */}
       <div style={styles.header}>
-        <div style={{ ...styles.iconBadge }}
-          dangerouslySetInnerHTML={{ __html: def.icon }}
-        />
+        <div style={styles.iconBadge} dangerouslySetInnerHTML={{ __html: def.icon }} />
         <div>
           <div style={styles.deviceType}>{def.label}</div>
           <div style={styles.nodeId}>{selectedNode.id}</div>
         </div>
       </div>
-
+ 
       <div style={styles.divider} />
-
+ 
       {/* Standard config fields */}
       <div style={styles.fields}>
         {def.configFields.map((field) => {
@@ -46,81 +63,72 @@ export default function ConfigSidebar({ selectedNode, onConfigChange, onDelete, 
           return <FieldRow key={field.key} field={field} config={config} def={def} onConfigChange={onConfigChange} styles={styles} />;
         })}
       </div>
-
-      {/* Router interfaces section — editable per-network gateway IPs */}
-      {isRouter && connectedNetworks.length > 0 && (
+ 
+      {/* Router interfaces — one block per directly connected node */}
+      {isRouter && (
         <>
           <div style={styles.divider} />
           <div style={styles.sectionLabel}>Interfaces</div>
-          <div style={styles.fields}>
-            {connectedNetworks.map((net) => {
-              const netConfig = net.data?.config || {};
-              return (
-                <div key={net.id} style={styles.interfaceBlock}>
-                  <div style={styles.interfaceHeader}>
-                    <span style={{ color: def.color, fontSize: 10 }}>▶</span>
-                    <span style={styles.interfaceName}>
-                      {netConfig.subnet
-                        ? `${netConfig.subnet}/${netConfig.mask ?? '24'}`
-                        : net.id}
-                    </span>
+          {connectedNodes.length === 0 ? (
+            <div style={{ padding: '10px 20px', fontSize: 12, color: theme.textMuted, fontFamily: 'monospace' }}>
+              Connect to a device to configure interfaces
+            </div>
+          ) : (
+            <div style={styles.fields}>
+              {connectedNodes.map((node) => {
+                const ifaceConfig = config.interfaces?.[node.id] || {};
+                const nodeLabel = node.data?.config?.hostname || node.id;
+                const nodeType = node.data?.type || node.type;
+                return (
+                  <div key={node.id} style={styles.interfaceBlock}>
+                    <div style={styles.interfaceHeader}>
+                      <span style={{ color: def.color, fontSize: 10 }}>▶</span>
+                      <span style={styles.interfaceName}>{nodeType} · {nodeLabel}</span>
+                    </div>
+                    <div style={styles.fieldGroup}>
+                      <label style={styles.label}>IP Address</label>
+                      <input
+                        type="text"
+                        value={ifaceConfig.ip || ''}
+                        placeholder="10.0.0.1"
+                        onChange={(e) => handleIfaceChange(node.id, 'ip', e.target.value)}
+                        style={styles.input}
+                      />
+                    </div>
+                    <div style={styles.fieldGroup}>
+                      <label style={styles.label}>Subnet</label>
+                      <input
+                        type="text"
+                        value={ifaceConfig.subnet || ''}
+                        placeholder="10.0.0.0"
+                        onChange={(e) => handleIfaceChange(node.id, 'subnet', e.target.value)}
+                        style={styles.input}
+                      />
+                    </div>
+                    <div style={styles.fieldGroup}>
+                      <label style={styles.label}>Mask</label>
+                      <input
+                        type="text"
+                        value={ifaceConfig.mask || ''}
+                        placeholder="24"
+                        onChange={(e) => handleIfaceChange(node.id, 'mask', e.target.value)}
+                        style={styles.input}
+                      />
+                    </div>
                   </div>
-
-                  <div style={styles.fieldGroup}>
-                    <label style={styles.label}>Gateway IP</label>
-                    <input
-                      type="text"
-                      value={netConfig.gateway || ''}
-                      placeholder="10.0.0.1"
-                      onChange={(e) => onNetworkConfigChange(net.id, 'gateway', e.target.value)}
-                      style={styles.input}
-                    />
-                  </div>
-
-                  <div style={styles.fieldGroup}>
-                    <label style={styles.label}>Subnet</label>
-                    <input
-                      type="text"
-                      value={netConfig.subnet || ''}
-                      placeholder="10.0.0.0"
-                      onChange={(e) => onNetworkConfigChange(net.id, 'subnet', e.target.value)}
-                      style={styles.input}
-                    />
-                  </div>
-
-                  <div style={styles.fieldGroup}>
-                    <label style={styles.label}>Mask</label>
-                    <input
-                      type="text"
-                      value={netConfig.mask || ''}
-                      placeholder="24"
-                      onChange={(e) => onNetworkConfigChange(net.id, 'mask', e.target.value)}
-                      style={styles.input}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </>
       )}
-
-      {isRouter && connectedNetworks.length === 0 && (
-        <>
-          <div style={styles.divider} />
-          <div style={styles.sectionLabel}>Interfaces</div>
-          <div style={{ padding: '10px 20px', fontSize: 12, color: theme.textMuted, fontFamily: 'monospace' }}>
-            Connect to networks to configure interfaces
-          </div>
-        </>
-      )}
-
+ 
       <div style={styles.divider} />
       <button onClick={onDelete} style={styles.deleteBtn}>Delete Node</button>
     </div>
   );
 }
-
+ 
 function FieldRow({ field, config, def, onConfigChange, styles }) {
   return (
     <div style={styles.fieldGroup}>
@@ -128,7 +136,6 @@ function FieldRow({ field, config, def, onConfigChange, styles }) {
         {field.label}
         {field.required && <span style={{ color: def.color }}> *</span>}
       </label>
-
       {field.type === 'checkbox' && (
         <label style={styles.toggle}>
           <input
@@ -142,7 +149,6 @@ function FieldRow({ field, config, def, onConfigChange, styles }) {
           </span>
         </label>
       )}
-
       {field.type === 'select' && (
         <select
           value={config[field.key] || field.options[0]}
@@ -154,7 +160,6 @@ function FieldRow({ field, config, def, onConfigChange, styles }) {
           ))}
         </select>
       )}
-
       {field.type === 'text' && (
         <input
           type="text"
@@ -166,28 +171,6 @@ function FieldRow({ field, config, def, onConfigChange, styles }) {
       )}
     </div>
   );
-}
-
-function getConnectedNetworks(routerId, nodes, edges) {
-  const networkIds = new Set();
-
-  edges.forEach((edge) => {
-    const otherId = edge.source === routerId ? edge.target
-                  : edge.target === routerId ? edge.source
-                  : null;
-    if (!otherId) return;
-
-    const other = nodes.find((n) => n.id === otherId);
-    if (!other) return;
-
-    if (other.type === 'networkNode') {
-      networkIds.add(other.id);
-    } else if (other.parentNode) {
-      networkIds.add(other.parentNode);
-    }
-  });
-
-  return Array.from(networkIds).map((id) => nodes.find((n) => n.id === id)).filter(Boolean);
 }
 
 const getStyles = (theme, isDarkMode) => ({

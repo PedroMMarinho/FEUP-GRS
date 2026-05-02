@@ -63,16 +63,7 @@ export default function NetworkNode({ data, selected }) {
         )}
       </div>
 
-      {/* Connection handles on the border */}
-      <Handle type="source" position={Position.Right} style={handleStyle(def.color)} />
-      <Handle type="target" position={Position.Left} style={handleStyle(def.color)} />
+      {/* No handles — NetworkNode is a pure visual annotation */}
     </>
   );
 }
-
-const handleStyle = (color) => ({
-  width: 8,
-  height: 8,
-  background: color,
-  border: '2px solid #0d1117',
-});
