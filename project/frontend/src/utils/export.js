@@ -104,6 +104,112 @@ export function buildTopology(nodes, edges) {
   return topology;
 }
 
+
+/**
+ * Reconstructs React Flow nodes and edges from a topology JSON.
+ * Networks become networkNodes with devices as children (parentNode).
+ * Routers become standalone routerNodes.
+ * Links become edges.
+ */
+export function importTopology(topology) {
+  const nodes = [];
+  const edges = [];
+ 
+  const NET_WIDTH  = 300;
+  const NET_HEIGHT = 220;
+  const NET_GAP    = 80;
+ 
+  // 1. Network nodes — placed side by side
+  topology.networks.forEach((net, i) => {
+    nodes.push({
+      id:   net.id,
+      type: 'networkNode',
+      position: {
+        x: i * (NET_WIDTH + NET_GAP) + 60,
+        y: 80,
+      },
+      style: { width: NET_WIDTH, height: NET_HEIGHT },
+      data: { type: 'network', config: net.config || {} },
+    });
+  });
+ 
+  // 2. Device nodes
+  const networkPositions = {};
+  nodes.forEach((n) => {
+    if (n.type === 'networkNode') networkPositions[n.id] = n.position;
+  });
+ 
+  const childCounters = {};
+ 
+  topology.devices.forEach((device) => {
+    const isRouter = device.type === 'router';
+    const netIds   = device.networks || [];
+ 
+    if (isRouter) {
+      // Centre the router below the networks it connects
+      const connectedPositions = netIds
+        .map((id) => networkPositions[id])
+        .filter(Boolean);
+ 
+      let x = 200, y = 380;
+      if (connectedPositions.length > 0) {
+        x = connectedPositions.reduce((sum, p) => sum + p.x, 0) / connectedPositions.length
+            + NET_WIDTH / 2 - 80;
+        y = NET_HEIGHT + 160;
+      }
+ 
+      nodes.push({
+        id:   device.id,
+        type: 'routerNode',
+        position: { x, y },
+        style: { width: 160, height: 120 },
+        data: { type: 'router', config: device.config || {} },
+      });
+    } else {
+      const parentId = netIds[0];
+ 
+      if (parentId && networkPositions[parentId] !== undefined) {
+        const idx = childCounters[parentId] ?? 0;
+        childCounters[parentId] = idx + 1;
+ 
+        nodes.push({
+          id:         device.id,
+          type:       'deviceNode',
+          parentNode: parentId,
+          extent:     'parent',
+          position: {
+            x: 20 + (idx % 2) * 130,
+            y: 50 + Math.floor(idx / 2) * 70,
+          },
+          data: { type: device.type, config: device.config || {} },
+        });
+      } else {
+        nodes.push({
+          id:   device.id,
+          type: 'deviceNode',
+          position: { x: 100 + Math.random() * 200, y: 400 },
+          data: { type: device.type, config: device.config || {} },
+        });
+      }
+    }
+  });
+ 
+  // 3. Edges from links
+  topology.links.forEach((link, i) => {
+    edges.push({
+      id:           `e-${link.source}-${link.target}-${i}`,
+      source:       link.source,
+      target:       link.target,
+      sourceHandle: link.sourceHandle || null,
+      targetHandle: link.targetHandle || null,
+      animated:     false,
+      style:        { stroke: '#2d3348', strokeWidth: 2 },
+    });
+  });
+ 
+  return { nodes, edges };
+}
+
 export function downloadJSON(topology) {
   const blob = new Blob([JSON.stringify(topology, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);

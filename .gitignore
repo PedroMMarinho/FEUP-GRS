@@ -5,3 +5,4 @@ labs/lab1/part1/traffic-captures/*
 .DS_Store
 __pycache__
 project/backend/output
+.vscode/

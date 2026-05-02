@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import logo from '../assets/logo.png';
 
-export default function Toolbar({ onExportJSON, onExportPNG, onLoadExample, isDarkMode, toggleTheme, theme }) {
+export default function Toolbar({ onExportJSON, onExportPNG, onImport, onLoadExample, isDarkMode, toggleTheme, theme }) {
   const [isExportOpen, setIsExportOpen] = useState(false);
 
   // Fallback to prevent crashes if theme isn't fully loaded
@@ -47,6 +47,15 @@ export default function Toolbar({ onExportJSON, onExportPNG, onLoadExample, isDa
             <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
           </svg>
           <span>Example</span>
+        </button>
+
+        <button onClick={onImport} style={styles.ghostBtn} title="Import topology from JSON file">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={currentTheme.textMuted} strokeWidth="2" style={{ display: 'block' }}>
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          <span>Import</span>
         </button>
 
         {/* Theme Toggle Slider */}

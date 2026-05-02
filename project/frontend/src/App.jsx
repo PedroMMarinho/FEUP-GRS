@@ -16,7 +16,7 @@ import Toolbar from './components/Toolbar';
 import ConfigSidebar from './components/ConfigSidebar';
 import DeviceSidebar from './components/DeviceSidebar';
 import { EXAMPLE_NODES, EXAMPLE_EDGES } from './utils/exampleTopology';
-import { buildTopology, downloadJSON, downloadPNG } from './utils/export';
+import { buildTopology, downloadJSON, downloadPNG, importTopology } from './utils/export';
 
 // Register custom node types once
 const NODE_TYPES = {
@@ -277,10 +277,24 @@ export default function App() {
     setSelectedNodeId(null);
   }, []);
 
-  const handleExport = useCallback(() => {
-    const topology = buildTopology(nodes, edges);
-    downloadJSON(topology);
-  }, [nodes, edges]);
+  const handleImport = useCallback((e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const topology = JSON.parse(ev.target.result);
+        const { nodes: importedNodes, edges: importedEdges } = importTopology(topology);
+        setNodes(importedNodes);
+        setEdges(importedEdges);
+        setSelectedNodeId(null);
+      } catch {
+        alert('Invalid topology JSON file.');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  }, []);
 
   const handleNetworkConfigChange = useCallback((networkId, field, value) => {
   setNodes((nds) =>
@@ -381,10 +395,18 @@ export default function App() {
 
   return (
     <div style={dynamicStyles.root}>
+      <input
+        id="import-json"
+        type="file"
+        accept=".json"
+        style={{ display: 'none' }}
+        onChange={handleImport}
+      />
       <Toolbar 
         onAdd={handleAdd} 
         onExportJSON={handleExportJSON} 
-        onExportPNG={handleExportPNG} 
+        onExportPNG={handleExportPNG}
+        onImport={() => document.getElementById('import-json').click()}
         onLoadExample={handleLoadExample}
         isDarkMode={isDarkMode}
         toggleTheme={() => setIsDarkMode(!isDarkMode)}
