@@ -13,6 +13,8 @@ export default function RouterNode({ id, data, selected }) {
   const allEdges = useEdges();
   const allNodes = useNodes();
 
+  const theme = data.theme;
+
   // Find which networks this router is connected to via edges
   const connectedNetworks = useMemo(() => {
     const networkIds = new Set();
@@ -117,7 +119,7 @@ export default function RouterNode({ id, data, selected }) {
             fontSize: 12, color: '#e2e8f0', fontWeight: 600,
             whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 100,
           }}>
-            {data.config?.hostname || id}
+          {data.config?.hostname || (id === 'ghost-node' ? '' : id)}
           </div>
         </div>
       </div>
@@ -145,7 +147,7 @@ export default function RouterNode({ id, data, selected }) {
       )}
 
       {connectedNetworks.length === 0 && (
-        <div style={{ fontSize: 9, color: '#3a4060', fontFamily: 'monospace', marginTop: 2 }}>
+        <div style={{ fontSize: 10, color: theme.textMuted, fontStyle: 'italic', fontFamily: 'monospace', marginTop: 4 }}>
           no interfaces
         </div>
       )}

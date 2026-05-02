@@ -71,12 +71,6 @@ export default function App() {
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
   const [draggedDevice, setDraggedDevice] = useState(null);
 
-  React.useEffect(() => {
-    if (!draggedDevice) {
-      setNodes((nds) => nds.filter((n) => n.id !== 'ghost-node'));
-    }
-  }, [draggedDevice, setNodes]);
-
   // Theme State
   const [isDarkMode, setIsDarkMode] = useState(true);
   const theme = isDarkMode ? themes.dark : themes.light;
@@ -113,6 +107,21 @@ export default function App() {
     };
   }, [resize, stopResizing]);
 
+  React.useEffect(() => {
+    if (!draggedDevice) {
+      setNodes((nds) => nds.filter((n) => n.id !== 'ghost-node'));
+    }
+  }, [draggedDevice, setNodes]);
+
+  React.useEffect(() => {
+    setNodes((nds) =>
+      nds.map((n) => ({
+        ...n,
+        data: { ...n.data, theme, isDarkMode },
+      }))
+    );
+  }, [theme, isDarkMode, setNodes]);
+
   // React Flow change handlers
   const onNodesChange = useCallback((changes) => setNodes((nds) => applyNodeChanges(changes, nds)), []);
   const onEdgesChange = useCallback((changes) => setEdges((eds) => applyEdgeChanges(changes, eds)), []);
@@ -138,7 +147,7 @@ export default function App() {
     const newNode = {
       id,
       type: isNetwork ? 'networkNode' : isRouter ? 'routerNode' : 'deviceNode',
-      data: { type, config: {} },
+      data: { type, config: {}, theme, isDarkMode },
       position: { x: 120 + Math.random() * 200, y: 80 + Math.random() * 150 },
       ...(isNetwork && { style: { width: 300, height: 220 } }),
       ...(isRouter && { style: { width: 160, height: 120 } }),
@@ -169,7 +178,7 @@ export default function App() {
             id: 'ghost-node',
             type: isNetwork ? 'networkNode' : isRouter ? 'routerNode' : 'deviceNode',
             position,
-            data: { type: draggedDevice.type, config: {} },
+            data: { type: draggedDevice.type, config: {}, theme, isDarkMode },
             style: { 
               opacity: 0.5, 
               pointerEvents: 'none', // Prevents the ghost from blocking drops!
@@ -237,7 +246,7 @@ export default function App() {
         id,
         type: isNetwork ? 'networkNode' : isRouter ? 'routerNode' : 'deviceNode',
         position: finalPosition, // Use our newly calculated position
-        data: { type: draggedDevice.type, config: {} },
+        data: { type: draggedDevice.type, config: {}, theme, isDarkMode},
         ...(isNetwork && { style: { width: 300, height: 220 } }),
         ...(isRouter && { style: { width: 160, height: 120 } }),
         ...(parentNodeId && { 
@@ -443,7 +452,7 @@ export default function App() {
             .react-flow__node-networkNode img {
                filter: ${isDarkMode ? 'invert(1)' : 'none'};
                transition: filter 0.3s ease;
-            },
+            }
           `}</style>
 
           <ReactFlow
