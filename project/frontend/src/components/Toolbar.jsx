@@ -49,15 +49,6 @@ export default function Toolbar({ onExportJSON, onExportPNG, onImport, onLoadExa
           <span>Example</span>
         </button>
 
-        <button onClick={onImport} style={styles.ghostBtn} title="Import topology from JSON file">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={currentTheme.textMuted} strokeWidth="2" style={{ display: 'block' }}>
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-            <polyline points="17 8 12 3 7 8"/>
-            <line x1="12" y1="3" x2="12" y2="15"/>
-          </svg>
-          <span>Import</span>
-        </button>
-
         {/* Theme Toggle Slider */}
         <div style={styles.toggleTrack} onClick={toggleTheme}>
           <svg style={{ ...styles.toggleIcon, left: 6 }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={currentTheme.textMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -77,6 +68,16 @@ export default function Toolbar({ onExportJSON, onExportPNG, onImport, onLoadExa
           {/* Knob uses accentBg (White in Dark Mode, Black in Light Mode) */}
           <div style={styles.toggleKnob} />
         </div>
+
+        {/* Import Button */}
+        <button onClick={onImport} style={styles.importBtn} title="Import topology from JSON file">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ flexShrink: 0 }}>
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          <span>Import</span>
+        </button>
 
         {/* Export Dropdown */}
         <div style={styles.dropdownContainer}>
@@ -154,12 +155,11 @@ const getStyles = (theme, isDarkMode, isExportOpen) => ({
   leftSection: {
     display: 'flex',
     alignItems: 'center',
-    gap: 16, // This is the space between the Logo, Divider, and Text!
+    gap: 16,
   },
   brandLogo: {
-    height: 32, // Scaled down slightly so it aligns perfectly with the text height
+    height: 32,
     width: 'auto',
-    // Keeps logo visible if you swap to light mode
   },
   divider: {
     width: 1,
@@ -169,7 +169,7 @@ const getStyles = (theme, isDarkMode, isExportOpen) => ({
   brandText: {
     display: 'flex',
     alignItems: 'center',
-    gap: 2, // Tight gap just for the text brackets
+    gap: 2,
     fontSize: 18,
     fontWeight: 700,
     color: theme.textMain,
@@ -234,6 +234,23 @@ const getStyles = (theme, isDarkMode, isExportOpen) => ({
     transform: isDarkMode ? 'translateX(0px)' : 'translateX(26px)',
     transition: 'transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1), background 0.3s ease',
   },
+  importBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    padding: '7px 14px',
+    background: theme.controlsBg, // Gives it a subtle secondary button look
+    border: `1px solid ${theme.borderColor}`,
+    borderRadius: 6,
+    color: theme.textMain,
+    fontSize: 13,
+    fontWeight: 600,
+    lineHeight: 1,
+    cursor: 'pointer',
+    fontFamily: 'monospace',
+    transition: 'opacity 0.2s ease',
+  },
   dropdownContainer: {
     position: 'relative',
   },
@@ -246,7 +263,7 @@ const getStyles = (theme, isDarkMode, isExportOpen) => ({
     background: theme.accentMain, // Terminal Green
     border: 'none',
     borderRadius: 6,
-    color: theme.accentText, // Will dynamically swap using your theme!
+    color: theme.accentText,
     fontSize: 13,
     fontWeight: 700,
     lineHeight: 1,
@@ -262,7 +279,7 @@ const getStyles = (theme, isDarkMode, isExportOpen) => ({
     background: theme.sidebarBg,
     border: `1px solid ${theme.borderColor}`,
     borderRadius: 8,
-    boxShadow: '0 4px 12px rgba(0,0,0,0.15)', // Reduced shadow
+    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
     display: 'flex',
     flexDirection: 'column',
     minWidth: 160,
