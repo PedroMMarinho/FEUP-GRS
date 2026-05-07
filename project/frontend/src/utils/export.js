@@ -43,9 +43,31 @@ export function buildTopology(nodes, edges) {
       // Router interfaces come from its own config (written by ConfigSidebar)
       // keyed by connected node id — no derivation needed here
       if (node.data?.type === 'router') {
-        const interfaces = baseConfig.interfaces || {};
-        const firstIp = Object.values(interfaces).find((i) => i?.ip)?.ip || null;
-        if (firstIp) baseConfig.ip_address = firstIp;
+        const existingInterfaces = baseConfig.interfaces || {};
+
+        const connectedNodeIds = new Set();
+
+        edges.forEach((edge) => {
+          if (edge.source === node.id) {
+            connectedNodeIds.add(edge.target);
+          }
+
+          if (edge.target === node.id) {
+            connectedNodeIds.add(edge.source);
+          }
+        });
+
+        const cleanedInterfaces = {};
+
+        Object.entries(existingInterfaces).forEach(([connectedId, iface]) => {
+          if (connectedNodeIds.has(connectedId)) {
+            cleanedInterfaces[connectedId] = iface;
+          }
+        });
+
+        baseConfig.interfaces = cleanedInterfaces;
+
+        delete baseConfig.ip_address;
       } else {
         // For non-routers inside a NetworkNode, inject gateway + subnet_mask
         // from the parent network config if not already explicitly set by the user

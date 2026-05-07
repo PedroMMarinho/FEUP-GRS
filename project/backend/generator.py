@@ -17,6 +17,8 @@ OUTPUT_DIR = BASE_DIR / "generated" / "network"
 COMPOSE_FILE = OUTPUT_DIR / "docker-compose.yml"
 
 SUPPORTED_TYPES = {"host", "switch", "router"}
+TRANSIT_PREFIX = ipaddress.ip_network("10.255.0.0/16")
+TRANSIT_MASK = 29
 
 
 def generate(topology: dict[str, Any]) -> str:
@@ -68,6 +70,84 @@ def reset_output_dir() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def router_router_link_key(a: str, b: str) -> str:
+    return "__".join(sorted([a, b]))
+
+
+def transit_network_id_for(a: str, b: str) -> str:
+    left, right = sorted([a, b])
+    return f"transit_{left}_{right}"
+
+
+def generate_transit_subnet(index: int) -> ipaddress.IPv4Network:
+    """
+    Generate one /29 per router-router link.
+
+    10.255.0.0/29
+    10.255.0.8/29
+    10.255.0.16/29
+    ...
+    """
+    base = int(TRANSIT_PREFIX.network_address)
+    subnet_size = 2 ** (32 - TRANSIT_MASK)  # 8 addresses for /29
+    network_address = ipaddress.IPv4Address(base + index * subnet_size)
+    return ipaddress.ip_network(f"{network_address}/{TRANSIT_MASK}", strict=False)
+
+
+def add_transit_networks_for_router_links(
+    networks_by_id: dict[str, dict[str, Any]],
+    devices_by_id: dict[str, dict[str, Any]],
+    links: list[dict[str, Any]],
+) -> None:
+    """
+    Adds hidden/generated Docker networks for router-router links.
+
+    A router-router visual link needs a real L3 transit subnet.
+    """
+    transit_index = 0
+    seen_links: set[str] = set()
+
+    for link in links:
+        source_id = link.get("source")
+        target_id = link.get("target")
+
+        source = devices_by_id.get(source_id)
+        target = devices_by_id.get(target_id)
+
+        if not source or not target:
+            continue
+
+        if source.get("type") != "router" or target.get("type") != "router":
+            continue
+
+        key = router_router_link_key(source_id, target_id)
+        if key in seen_links:
+            continue
+
+        seen_links.add(key)
+
+        network_id = transit_network_id_for(source_id, target_id)
+
+        if network_id in networks_by_id:
+            continue
+
+        subnet = generate_transit_subnet(transit_index)
+        transit_index += 1
+
+        networks_by_id[network_id] = {
+            "id": network_id,
+            "config": {
+                "subnet": str(subnet.network_address),
+                "mask": str(subnet.prefixlen),
+            },
+            "members": [
+                source_id,
+                target_id,
+            ],
+            "generated": True,
+            "type": "transit",
+        }
+
 def normalize_and_validate(topology: dict[str, Any]) -> dict[str, Any]:
     networks = topology.get("networks") or []
     devices = topology.get("devices") or []
@@ -98,6 +178,9 @@ def normalize_and_validate(topology: dict[str, Any]) -> dict[str, Any]:
 
     validate_network_members(networks_by_id, devices_by_id)
     validate_links(links, devices_by_id)
+
+    # Router-router links need generated transit Docker networks.
+    add_transit_networks_for_router_links(networks_by_id, devices_by_id, links)
 
     # Mutates device dictionaries by adding generated fields used by device builders.
     for device in devices:
@@ -215,25 +298,43 @@ def attach_router_networks(
             raise ValueError(f"Router {router_id} interface references unknown device {peer_id}")
 
         peer = devices_by_id[peer_id]
-        peer_networks = peer.get("networks") or []
-        if len(peer_networks) != 1:
-            raise ValueError(
-                f"Router {router_id} interface peer {peer_id} must belong to exactly one network"
-            )
-
-        network_id = peer_networks[0]
-        if network_id not in networks_by_id:
-            raise ValueError(f"Router {router_id} references unknown network {network_id}")
+        peer_type = peer.get("type")
 
         ip = iface.get("ip")
         if not ip:
             raise ValueError(f"Router {router_id} interface to {peer_id} needs an ip")
 
+        if peer_type == "router":
+            network_id = transit_network_id_for(router_id, peer_id)
+
+            if network_id not in networks_by_id:
+                raise ValueError(
+                    f"Router-router interface {router_id} -> {peer_id} has no transit network"
+                )
+
+        else:
+            peer_networks = peer.get("networks") or []
+
+            if len(peer_networks) != 1:
+                raise ValueError(
+                    f"Router {router_id} interface peer {peer_id} must belong to exactly one network"
+                )
+
+            network_id = peer_networks[0]
+
+            if network_id not in networks_by_id:
+                raise ValueError(f"Router {router_id} references unknown network {network_id}")
+
         if network_id in seen_networks:
-            # Same router connected twice to the same Docker network is not useful here.
             continue
 
-        attachments.append({"network_id": network_id, "ip": ip, "peer_id": peer_id})
+        attachments.append(
+            {
+                "network_id": network_id,
+                "ip": ip,
+                "peer_id": peer_id,
+            }
+        )
         seen_networks.add(network_id)
 
     router["_attachments"] = attachments
@@ -327,6 +428,6 @@ if __name__ == "__main__":
     import json
 
     # Opening JSON file
-    with open('/Users/joselopes/Desktop/vno-topology-1778181748310.json') as json_file:
+    with open('/Users/joselopes/Desktop/vno-topology-1778187576025.json') as json_file:
         data = json.load(json_file)
         generate(data)
