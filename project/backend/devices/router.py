@@ -20,10 +20,17 @@ def render_router_context(device: dict[str, Any]) -> None:
     config = device.get("config") or {}
     destination = OUTPUT_DIR / device["id"]
 
+    routes = device.get("_static_routes", [])
+    static_routes = "\n".join(
+        f"{route['to']} via {route['via']}"
+        for route in routes
+    )
+
     copy_template("router", destination)
     render_template_file(
         destination / "init.sh",
         {
-            "hostname": config.get("hostname", device["id"]),
+            "hostname": config.get("hostname") or device["id"],
+            "static_routes": static_routes,
         },
     )

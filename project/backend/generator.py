@@ -148,6 +148,91 @@ def add_transit_networks_for_router_links(
             "type": "transit",
         }
 
+def generate_router_static_routes(
+    devices: list[dict[str, Any]],
+    networks_by_id: dict[str, dict[str, Any]],
+    devices_by_id: dict[str, dict[str, Any]],
+) -> None:
+    routers = [d for d in devices if d["type"] == "router"]
+    routers_by_id = {r["id"]: r for r in routers}
+
+    # router_id -> set of directly connected network ids
+    router_networks: dict[str, set[str]] = {
+        r["id"]: {a["network_id"] for a in r.get("_attachments", [])}
+        for r in routers
+    }
+
+    # router graph: router -> neighbor router -> next-hop IP of neighbor
+    adjacency: dict[str, dict[str, str]] = {r["id"]: {} for r in routers}
+
+    for router in routers:
+        router_id = router["id"]
+        interfaces = (router.get("config") or {}).get("interfaces") or {}
+
+        for peer_id, iface in interfaces.items():
+            peer = devices_by_id.get(peer_id)
+            if not peer or peer.get("type") != "router":
+                continue
+
+            peer_interfaces = (peer.get("config") or {}).get("interfaces") or {}
+            reverse_iface = peer_interfaces.get(router_id)
+
+            if not reverse_iface or not reverse_iface.get("ip"):
+                raise ValueError(
+                    f"Router link {router_id} <-> {peer_id} is missing reverse interface IP"
+                )
+
+            # From router_id, the next hop to peer_id is the peer's IP
+            # on the shared transit network.
+            adjacency[router_id][peer_id] = reverse_iface["ip"]
+
+    for router in routers:
+        router_id = router["id"]
+        routes: list[dict[str, str]] = []
+
+        # BFS over router graph.
+        visited = {router_id}
+        queue: list[tuple[str, str | None]] = [(router_id, None)]
+        # tuple: current_router_id, first_hop_router_id
+
+        while queue:
+            current_id, first_hop = queue.pop(0)
+
+            for neighbor_id in adjacency.get(current_id, {}):
+                if neighbor_id in visited:
+                    continue
+
+                visited.add(neighbor_id)
+
+                next_first_hop = first_hop or neighbor_id
+                queue.append((neighbor_id, next_first_hop))
+
+                # For every network connected to this newly reached router,
+                # add a route if the original router is not directly connected to it.
+                for network_id in router_networks.get(neighbor_id, set()):
+                    if network_id in router_networks[router_id]:
+                        continue
+
+                    network = networks_by_id[network_id]
+
+                    # Do not add routes to transit networks; only LAN networks.
+                    if network.get("type") == "transit" or network.get("generated") is True:
+                        continue
+
+                    destination = str(network_to_ipaddress(network))
+
+                    via = adjacency[router_id][next_first_hop]
+
+                    route = {
+                        "to": destination,
+                        "via": via,
+                    }
+
+                    if route not in routes:
+                        routes.append(route)
+
+        router["_static_routes"] = routes
+
 def normalize_and_validate(topology: dict[str, Any]) -> dict[str, Any]:
     networks = topology.get("networks") or []
     devices = topology.get("devices") or []
@@ -190,6 +275,8 @@ def normalize_and_validate(topology: dict[str, Any]) -> dict[str, Any]:
             attach_router_networks(device, networks_by_id, devices_by_id)
 
     validate_ips(devices, networks_by_id)
+
+    generate_router_static_routes(devices, networks_by_id, devices_by_id)
 
     return {
         "networks": networks,
@@ -428,6 +515,6 @@ if __name__ == "__main__":
     import json
 
     # Opening JSON file
-    with open('/Users/joselopes/Desktop/vno-topology-1778187576025.json') as json_file:
+    with open('/Users/joselopes/Desktop/vno-topology-1778191751558.json') as json_file:
         data = json.load(json_file)
         generate(data)
