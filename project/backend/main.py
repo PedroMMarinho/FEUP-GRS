@@ -7,7 +7,7 @@ from typing import Any
 import zipfile
 import io
 
-from generator import generate, OUTPUT_DIR
+from project.backend.generator import generate, OUTPUT_DIR
 
 app = FastAPI(title="GRS Backend")
 
@@ -70,7 +70,7 @@ def generate_and_download(topology: Topology):
 @app.get("/templates")
 def list_templates():
     """Return available device types (template folder names)."""
-    from generator import TEMPLATES_DIR
+    from project.backend.generator import TEMPLATES_DIR
     types = [d.name for d in TEMPLATES_DIR.iterdir() if d.is_dir()]
     return {"types": types}
 
