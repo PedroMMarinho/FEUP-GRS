@@ -79,19 +79,9 @@ def transit_network_id_for(a: str, b: str) -> str:
     return f"transit_{left}_{right}"
 
 
-def generate_transit_subnet(index: int) -> ipaddress.IPv4Network:
-    """
-    Generate one /29 per router-router link.
-
-    10.255.0.0/29
-    10.255.0.8/29
-    10.255.0.16/29
-    ...
-    """
-    base = int(TRANSIT_PREFIX.network_address)
-    subnet_size = 2 ** (32 - TRANSIT_MASK)  # 8 addresses for /29
-    network_address = ipaddress.IPv4Address(base + index * subnet_size)
-    return ipaddress.ip_network(f"{network_address}/{TRANSIT_MASK}", strict=False)
+def transit_network_id_from_subnet(subnet: str, mask: str) -> str:
+    safe_subnet = subnet.replace(".", "_").replace(":", "_")
+    return f"transit_{safe_subnet}_{mask}"
 
 
 def add_transit_networks_for_router_links(
@@ -100,11 +90,11 @@ def add_transit_networks_for_router_links(
     links: list[dict[str, Any]],
 ) -> None:
     """
-    Adds hidden/generated Docker networks for router-router links.
+    Adds Docker networks for router-router links using the user-defined
+    subnet/mask from the router interface configs.
 
-    A router-router visual link needs a real L3 transit subnet.
+    Each router-router link should have interface config on both routers.
     """
-    transit_index = 0
     seen_links: set[str] = set()
 
     for link in links:
@@ -126,27 +116,113 @@ def add_transit_networks_for_router_links(
 
         seen_links.add(key)
 
-        network_id = transit_network_id_for(source_id, target_id)
+        source_interfaces = (source.get("config") or {}).get("interfaces") or {}
+        target_interfaces = (target.get("config") or {}).get("interfaces") or {}
 
-        if network_id in networks_by_id:
-            continue
+        source_iface = source_interfaces.get(target_id)
+        target_iface = target_interfaces.get(source_id)
 
-        subnet = generate_transit_subnet(transit_index)
-        transit_index += 1
+        if not source_iface:
+            raise ValueError(
+                f"Router-router link {source_id} <-> {target_id} is missing "
+                f"interface config on {source_id}"
+            )
 
-        networks_by_id[network_id] = {
-            "id": network_id,
-            "config": {
-                "subnet": str(subnet.network_address),
-                "mask": str(subnet.prefixlen),
-            },
-            "members": [
-                source_id,
-                target_id,
-            ],
-            "generated": True,
-            "type": "transit",
-        }
+        if not target_iface:
+            raise ValueError(
+                f"Router-router link {source_id} <-> {target_id} is missing "
+                f"interface config on {target_id}"
+            )
+
+        source_ip = source_iface.get("ip")
+        target_ip = target_iface.get("ip")
+
+        source_subnet = source_iface.get("subnet")
+        source_mask = str(source_iface.get("mask", ""))
+
+        target_subnet = target_iface.get("subnet")
+        target_mask = str(target_iface.get("mask", ""))
+
+        if not source_ip or not source_subnet or not source_mask:
+            raise ValueError(
+                f"Router {source_id} interface to {target_id} needs ip, subnet and mask"
+            )
+
+        if not target_ip or not target_subnet or not target_mask:
+            raise ValueError(
+                f"Router {target_id} interface to {source_id} needs ip, subnet and mask"
+            )
+
+        try:
+            source_net = ipaddress.ip_network(
+                f"{source_subnet}/{source_mask}",
+                strict=False,
+            )
+            target_net = ipaddress.ip_network(
+                f"{target_subnet}/{target_mask}",
+                strict=False,
+            )
+            source_ip_obj = ipaddress.ip_address(source_ip)
+            target_ip_obj = ipaddress.ip_address(target_ip)
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid transit config for router-router link "
+                f"{source_id} <-> {target_id}"
+            ) from exc
+
+        if source_net != target_net:
+            raise ValueError(
+                f"Router-router link {source_id} <-> {target_id} has mismatched "
+                f"transit networks: {source_net} and {target_net}"
+            )
+
+        if source_ip_obj not in source_net:
+            raise ValueError(
+                f"Router {source_id} IP {source_ip} is not inside transit network {source_net}"
+            )
+
+        if target_ip_obj not in source_net:
+            raise ValueError(
+                f"Router {target_id} IP {target_ip} is not inside transit network {source_net}"
+            )
+
+        if source_ip_obj == target_ip_obj:
+            raise ValueError(
+                f"Router-router link {source_id} <-> {target_id} uses duplicate IP {source_ip}"
+            )
+
+        # Docker bridge normally reserves the first usable IP as the bridge gateway.
+        first_usable = next(source_net.hosts(), None)
+        if first_usable and (source_ip_obj == first_usable or target_ip_obj == first_usable):
+            raise ValueError(
+                f"Transit network {source_net} should not use {first_usable} for a router. "
+                f"Docker usually reserves it as the bridge gateway."
+            )
+
+        network_id = transit_network_id_from_subnet(
+            str(source_net.network_address),
+            str(source_net.prefixlen),
+        )
+
+        if network_id not in networks_by_id:
+            networks_by_id[network_id] = {
+                "id": network_id,
+                "config": {
+                    "subnet": str(source_net.network_address),
+                    "mask": str(source_net.prefixlen),
+                },
+                "members": [
+                    source_id,
+                    target_id,
+                ],
+                "generated": True,
+                "type": "transit",
+            }
+        else:
+            members = networks_by_id[network_id].setdefault("members", [])
+            for router_id in [source_id, target_id]:
+                if router_id not in members:
+                    members.append(router_id)
 
 def generate_router_static_routes(
     devices: list[dict[str, Any]],
@@ -392,7 +468,17 @@ def attach_router_networks(
             raise ValueError(f"Router {router_id} interface to {peer_id} needs an ip")
 
         if peer_type == "router":
-            network_id = transit_network_id_for(router_id, peer_id)
+            subnet = iface.get("subnet")
+            mask = str(iface.get("mask", ""))
+
+            if not subnet or not mask:
+                raise ValueError(f"Router {router_id} interface to {peer_id} needs subnet and mask")
+
+            ip_net = ipaddress.ip_network(f"{subnet}/{mask}", strict=False)
+            network_id = transit_network_id_from_subnet(
+                str(ip_net.network_address),
+                str(ip_net.prefixlen),
+            )
 
             if network_id not in networks_by_id:
                 raise ValueError(
