@@ -1,8 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse, FileResponse
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
-from pathlib import Path
 from typing import Any
 import zipfile
 import io
@@ -59,6 +58,7 @@ def generate_compose(topology: Topology):
 def generate_and_download(topology: Topology):
     """Generate and return a zip with docker-compose.yml + all device contexts."""
     from fastapi.responses import StreamingResponse
+
     _run_generate(topology)
     return StreamingResponse(
         _build_zip(),
@@ -71,6 +71,7 @@ def generate_and_download(topology: Topology):
 def list_templates():
     """Return available device types (template folder names)."""
     from project.backend.generator import TEMPLATES_DIR
+
     types = [d.name for d in TEMPLATES_DIR.iterdir() if d.is_dir()]
     return {"types": types}
 

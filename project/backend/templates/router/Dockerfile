@@ -9,12 +9,11 @@ RUN apt-get update && apt-get install -y \
     tcpdump \
     curl \
     wget \
-    iptables \
-    nftables \
-    traceroute \
+    iperf3 \
     nmap \
     dnsutils \
-    iperf3 \
+    traceroute \
+    netcat \
     && rm -rf /var/lib/apt/lists/*
 
 COPY init.sh /init.sh
