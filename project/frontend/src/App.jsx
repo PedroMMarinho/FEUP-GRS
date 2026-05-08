@@ -63,6 +63,333 @@ const themes = {
   }
 };
 
+const HOSTNAME_PREFIX = {
+  host: 'host',
+  switch: 'sw',
+  router: 'router',
+};
+
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+function ipv4ToInt(ip) {
+  return ip.split('.').reduce((acc, part) => (acc << 8) + Number(part), 0) >>> 0;
+}
+
+function intToIpv4(num) {
+  return [
+    (num >>> 24) & 255,
+    (num >>> 16) & 255,
+    (num >>> 8) & 255,
+    num & 255,
+  ].join('.');
+}
+
+function addIpv4(ip, offset) {
+  return intToIpv4((ipv4ToInt(ip) + offset) >>> 0);
+}
+
+function cidrToMask(bits) {
+  const b = parseInt(bits, 10);
+  return [0, 1, 2, 3]
+    .map((i) => {
+      const n = Math.min(8, Math.max(0, b - i * 8));
+      return 256 - Math.pow(2, 8 - n);
+    })
+    .join('.');
+}
+
+function getUsedHostnames(nodes) {
+  return new Set(
+    nodes
+      .map((n) => n.data?.config?.hostname)
+      .filter(Boolean)
+  );
+}
+
+function nextHostname(type, nodes) {
+  const prefix = HOSTNAME_PREFIX[type] || type;
+  const used = getUsedHostnames(nodes);
+
+  for (let i = 1; i < 1000; i += 1) {
+    const candidate = `${prefix}-${pad2(i)}`;
+    if (!used.has(candidate)) return candidate;
+  }
+
+  return `${prefix}-${Date.now()}`;
+}
+
+function getUsedNetworkSubnets(nodes) {
+  return new Set(
+    nodes
+      .filter((n) => n.type === 'networkNode')
+      .map((n) => {
+        const cfg = n.data?.config || {};
+        return cfg.subnet && cfg.mask ? `${cfg.subnet}/${cfg.mask}` : null;
+      })
+      .filter(Boolean)
+  );
+}
+
+function nextNetworkConfig(nodes) {
+  const used = getUsedNetworkSubnets(nodes);
+
+  for (let x = 1; x < 255; x += 1) {
+    const subnet = `10.0.${x}.0`;
+    const mask = '24';
+    const key = `${subnet}/${mask}`;
+
+    if (!used.has(key)) {
+      return {
+        subnet,
+        mask,
+        gateway: `10.0.${x}.250`,
+      };
+    }
+  }
+
+  return {
+    subnet: '10.0.254.0',
+    mask: '24',
+    gateway: '10.0.254.250',
+  };
+}
+
+function getNetworkNodeById(nodes, id) {
+  return nodes.find((n) => n.id === id && n.type === 'networkNode') || null;
+}
+
+function getNetworkConfigForNode(nodes, node) {
+  if (!node?.parentNode) return null;
+  const networkNode = getNetworkNodeById(nodes, node.parentNode);
+  return networkNode?.data?.config || null;
+}
+
+function getUsedIpsInNetwork(nodes, networkId) {
+  const used = new Set();
+
+  nodes.forEach((node) => {
+    const cfg = node.data?.config || {};
+
+    if (node.parentNode === networkId && cfg.ip_address) {
+      used.add(cfg.ip_address);
+    }
+
+    if (node.data?.type === 'router') {
+      const interfaces = cfg.interfaces || {};
+      Object.values(interfaces).forEach((iface) => {
+        if (iface?.ip) used.add(iface.ip);
+      });
+    }
+  });
+
+  return used;
+}
+
+function nextHostIp(nodes, networkId) {
+  const networkNode = getNetworkNodeById(nodes, networkId);
+  const cfg = networkNode?.data?.config || {};
+  const subnet = cfg.subnet;
+
+  if (!subnet) return '';
+
+  const parts = subnet.split('.');
+  const prefix = `${parts[0]}.${parts[1]}.${parts[2]}`;
+  const used = getUsedIpsInNetwork(nodes, networkId);
+
+  // Start at .10 to avoid Docker bridge/dynamic addresses and leave .250 for gateway/router.
+  for (let host = 10; host < 240; host += 1) {
+    const candidate = `${prefix}.${host}`;
+    if (!used.has(candidate)) return candidate;
+  }
+
+  return `${prefix}.10`;
+}
+
+function createDefaultConfig(type, nodes, parentNetworkId = null) {
+  if (type === 'network') {
+    return nextNetworkConfig(nodes);
+  }
+
+  if (type === 'router') {
+    return {
+      hostname: nextHostname('router', nodes),
+      interfaces: {},
+    };
+  }
+
+  if (type === 'switch') {
+    const config = {
+      hostname: nextHostname('switch', nodes),
+    };
+
+    if (parentNetworkId) {
+      const netCfg = getNetworkNodeById(nodes, parentNetworkId)?.data?.config || {};
+      if (netCfg.gateway) config.gateway = netCfg.gateway;
+      if (netCfg.mask) config.subnet_mask = cidrToMask(netCfg.mask);
+    }
+
+    return config;
+  }
+
+  if (type === 'host') {
+    const config = {
+      hostname: nextHostname('host', nodes),
+    };
+
+    if (parentNetworkId) {
+      const netCfg = getNetworkNodeById(nodes, parentNetworkId)?.data?.config || {};
+      config.ip_address = nextHostIp(nodes, parentNetworkId);
+
+      if (netCfg.mask) config.subnet_mask = cidrToMask(netCfg.mask);
+      if (netCfg.gateway) config.gateway = netCfg.gateway;
+    }
+
+    return config;
+  }
+
+  return {};
+}
+
+function getUsedTransitSubnets(nodes) {
+  const used = new Set();
+
+  nodes.forEach((node) => {
+    if (node.data?.type !== 'router') return;
+
+    const interfaces = node.data?.config?.interfaces || {};
+
+    Object.values(interfaces).forEach((iface) => {
+      if (!iface?.subnet || !iface?.mask) return;
+
+      const key = `${iface.subnet}/${iface.mask}`;
+
+      if (iface.subnet.startsWith('10.255.')) {
+        used.add(key);
+      }
+    });
+  });
+
+  return used;
+}
+
+function nextTransitConfig(nodes) {
+  const used = getUsedTransitSubnets(nodes);
+
+  // Docker-safe /29 blocks:
+  // 10.255.0.0/29, 10.255.0.8/29, 10.255.0.16/29, ...
+  for (let index = 0; index < 8192; index += 1) {
+    const subnet = addIpv4('10.255.0.0', index * 8);
+    const mask = '29';
+    const key = `${subnet}/${mask}`;
+
+    if (!used.has(key)) {
+      return {
+        subnet,
+        mask,
+        // .1 is normally Docker bridge gateway, so use .2 and .3 for routers.
+        sourceIp: addIpv4(subnet, 2),
+        targetIp: addIpv4(subnet, 3),
+      };
+    }
+  }
+
+  return {
+    subnet: '10.255.255.0',
+    mask: '29',
+    sourceIp: '10.255.255.2',
+    targetIp: '10.255.255.3',
+  };
+}
+
+function buildLanRouterInterface(nodes, peerNode) {
+  const netCfg = getNetworkConfigForNode(nodes, peerNode);
+
+  if (!netCfg?.subnet || !netCfg?.mask) {
+    return null;
+  }
+
+  return {
+    ip: netCfg.gateway || addIpv4(netCfg.subnet, 250),
+    subnet: netCfg.subnet,
+    mask: String(netCfg.mask),
+  };
+}
+
+function applyRouterInterfacesForConnection(nodes, params) {
+  const sourceNode = nodes.find((n) => n.id === params.source);
+  const targetNode = nodes.find((n) => n.id === params.target);
+
+  if (!sourceNode || !targetNode) return nodes;
+
+  const sourceIsRouter = sourceNode.data?.type === 'router';
+  const targetIsRouter = targetNode.data?.type === 'router';
+
+  if (!sourceIsRouter && !targetIsRouter) return nodes;
+
+  const updates = new Map();
+
+  function setRouterInterface(routerNode, peerNode, iface) {
+    if (!iface) return;
+
+    const currentConfig = routerNode.data?.config || {};
+    const currentInterfaces = currentConfig.interfaces || {};
+
+    // Do not overwrite manual user config.
+    if (currentInterfaces[peerNode.id]?.ip) return;
+
+    updates.set(routerNode.id, {
+      ...currentConfig,
+      interfaces: {
+        ...currentInterfaces,
+        [peerNode.id]: iface,
+      },
+    });
+  }
+
+  if (sourceIsRouter && targetIsRouter) {
+    const existingSourceIface = sourceNode.data?.config?.interfaces?.[targetNode.id];
+    const existingTargetIface = targetNode.data?.config?.interfaces?.[sourceNode.id];
+
+    if (!existingSourceIface && !existingTargetIface) {
+      const transit = nextTransitConfig(nodes);
+
+      setRouterInterface(sourceNode, targetNode, {
+        ip: transit.sourceIp,
+        subnet: transit.subnet,
+        mask: transit.mask,
+      });
+
+      setRouterInterface(targetNode, sourceNode, {
+        ip: transit.targetIp,
+        subnet: transit.subnet,
+        mask: transit.mask,
+      });
+    }
+
+    return nodes.map((node) =>
+      updates.has(node.id)
+        ? { ...node, data: { ...node.data, config: updates.get(node.id) } }
+        : node
+    );
+  }
+
+  if (sourceIsRouter && !targetIsRouter) {
+    setRouterInterface(sourceNode, targetNode, buildLanRouterInterface(nodes, targetNode));
+  }
+
+  if (!sourceIsRouter && targetIsRouter) {
+    setRouterInterface(targetNode, sourceNode, buildLanRouterInterface(nodes, sourceNode));
+  }
+
+  return nodes.map((node) =>
+    updates.has(node.id)
+      ? { ...node, data: { ...node.data, config: updates.get(node.id) } }
+      : node
+  );
+}
+
 export default function App() {
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
@@ -70,12 +397,6 @@ export default function App() {
   
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
   const [draggedDevice, setDraggedDevice] = useState(null);
-
-  React.useEffect(() => {
-    if (!draggedDevice) {
-      setNodes((nds) => nds.filter((n) => n.id !== 'ghost-node'));
-    }
-  }, [draggedDevice, setNodes]);
 
   // Theme State
   const [isDarkMode, setIsDarkMode] = useState(true);
@@ -90,8 +411,10 @@ export default function App() {
   }, [nodes, edges]);
 
   const handleExportPNG = useCallback(() => {
-    downloadPNG(theme.canvasBg);
-  }, [theme.canvasBg]);
+    if (reactFlowInstance) {
+      downloadPNG(reactFlowInstance, theme.canvasBg);
+    }
+  }, [reactFlowInstance, theme.canvasBg]);
 
   const startResizing = React.useCallback(() => setIsDragging(true), []);
   const stopResizing = React.useCallback(() => setIsDragging(false), []);
@@ -113,14 +436,40 @@ export default function App() {
     };
   }, [resize, stopResizing]);
 
+  React.useEffect(() => {
+    if (!draggedDevice) {
+      setNodes((nds) => nds.filter((n) => n.id !== 'ghost-node'));
+    }
+  }, [draggedDevice, setNodes]);
+
+  React.useEffect(() => {
+    setNodes((nds) =>
+      nds.map((n) => ({
+        ...n,
+        data: { ...n.data, theme, isDarkMode },
+      }))
+    );
+  }, [theme, isDarkMode, setNodes]);
+
   // React Flow change handlers
   const onNodesChange = useCallback((changes) => setNodes((nds) => applyNodeChanges(changes, nds)), []);
   const onEdgesChange = useCallback((changes) => setEdges((eds) => applyEdgeChanges(changes, eds)), []);
   
   // Updated to use dynamic theme color for new edges
-  const onConnect = useCallback((params) => setEdges((eds) => 
-    addEdge({ ...params, animated: false, style: { stroke: theme.edgeColor, strokeWidth: 2 } }, eds)
-  ), [theme]);
+  const onConnect = useCallback((params) => {
+    setNodes((nds) => applyRouterInterfacesForConnection(nds, params));
+
+    setEdges((eds) =>
+      addEdge(
+        {
+          ...params,
+          animated: false,
+          style: { stroke: theme.edgeColor, strokeWidth: 2 },
+        },
+        eds
+      )
+    );
+  }, [theme]);
 
   const onNodeClick = useCallback((_, node) => setSelectedNodeId(node.id), []);
   const onPaneClick = useCallback(() => setSelectedNodeId(null), []);
@@ -134,19 +483,24 @@ export default function App() {
     const id = `${type}_${Math.random().toString(36).substr(2, 5)}`;
     const isNetwork = type === 'network';
     const isRouter = type === 'router';
-    
-    const newNode = {
-      id,
-      type: isNetwork ? 'networkNode' : isRouter ? 'routerNode' : 'deviceNode',
-      data: { type, config: {} },
-      position: { x: 120 + Math.random() * 200, y: 80 + Math.random() * 150 },
-      ...(isNetwork && { style: { width: 300, height: 220 } }),
-      ...(isRouter && { style: { width: 160, height: 120 } }),
-    };
 
-    setNodes((nds) => nds.concat(newNode));
+    setNodes((nds) => {
+      const config = createDefaultConfig(type, nds);
+
+      const newNode = {
+        id,
+        type: isNetwork ? 'networkNode' : isRouter ? 'routerNode' : 'deviceNode',
+        data: { type, config, theme, isDarkMode },
+        position: { x: 120 + Math.random() * 200, y: 80 + Math.random() * 150 },
+        ...(isNetwork && { style: { width: 300, height: 220 } }),
+        ...(isRouter && { style: { width: 160, height: 120 } }),
+      };
+
+      return nds.concat(newNode);
+    });
+
     setSelectedNodeId(id);
-  }, []);
+  }, [theme, isDarkMode]);
 
   // 1. As you drag over the canvas, move the Ghost Node
   const onDragOver = useCallback(
@@ -169,7 +523,7 @@ export default function App() {
             id: 'ghost-node',
             type: isNetwork ? 'networkNode' : isRouter ? 'routerNode' : 'deviceNode',
             position,
-            data: { type: draggedDevice.type, config: {} },
+            data: { type: draggedDevice.type, config: {}, theme, isDarkMode },
             style: { 
               opacity: 0.5, 
               pointerEvents: 'none', // Prevents the ghost from blocking drops!
@@ -209,7 +563,7 @@ export default function App() {
       let parentNodeId = undefined;
       let finalPosition = position;
 
-      if (!isNetwork) {
+      if (!isNetwork && !isRouter) {
         const targetNetwork = nodes.find((n) => {
           if (n.type !== 'networkNode') return false;
           
@@ -236,13 +590,18 @@ export default function App() {
       const newNode = {
         id,
         type: isNetwork ? 'networkNode' : isRouter ? 'routerNode' : 'deviceNode',
-        position: finalPosition, // Use our newly calculated position
-        data: { type: draggedDevice.type, config: {} },
+        position: finalPosition,
+        data: {
+          type: draggedDevice.type,
+          config: createDefaultConfig(draggedDevice.type, nodes, parentNodeId),
+          theme,
+          isDarkMode,
+        },
         ...(isNetwork && { style: { width: 300, height: 220 } }),
         ...(isRouter && { style: { width: 160, height: 120 } }),
-        ...(parentNodeId && { 
-          parentNode: parentNodeId, 
-          extent: 'parent' 
+        ...(parentNodeId && {
+          parentNode: parentNodeId,
+          extent: 'parent',
         }),
       };
 
@@ -251,7 +610,7 @@ export default function App() {
       setDraggedDevice(null);
       setSelectedNodeId(id);
     },
-    [reactFlowInstance, draggedDevice, nodes, setNodes]
+    [reactFlowInstance, draggedDevice, nodes, setNodes, theme, isDarkMode]
   );
 
   const handleConfigChange = useCallback((field, value) => {
@@ -438,6 +797,7 @@ export default function App() {
         <div style={dynamicStyles.canvas}>
 
           <style>{`
+            .react-flow__node-routerNode img,
             .react-flow__node-deviceNode img,
             .react-flow__node-networkNode img {
                filter: ${isDarkMode ? 'invert(1)' : 'none'};

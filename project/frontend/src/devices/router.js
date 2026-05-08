@@ -21,12 +21,6 @@ const router = {
       required: true,
     },
     {
-      key: 'subnet_mask',
-      label: 'Subnet Mask',
-      type: 'text',
-      placeholder: '255.255.255.0',
-    },
-    {
       key: 'ospf_enabled',
       label: 'Enable OSPF',
       type: 'checkbox',

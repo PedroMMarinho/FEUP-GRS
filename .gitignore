@@ -6,3 +6,4 @@ labs/lab1/part1/traffic-captures/*
 __pycache__
 project/backend/output
 .vscode/
+project/backend/generated

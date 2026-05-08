@@ -1,234 +1,597 @@
-import os
-import re
+from __future__ import annotations
+
+import ipaddress
 import shutil
 from pathlib import Path
 from typing import Any
 
-TEMPLATES_DIR = Path(__file__).parent / "templates"
-OUTPUT_DIR = Path(__file__).parent / "output"
+import yaml
 
-# Files in a template that should have placeholders rendered
-RENDERABLE_EXTENSIONS = {".sh", ".conf", ".env", ".txt", ".yml", ".yaml"}
+from project.backend.devices.host import build_host_service, render_host_context
+from project.backend.devices.router import build_router_service, render_router_context
+from project.backend.devices.switch import build_switch_service, render_switch_context
 
+BASE_DIR = Path(__file__).resolve().parent
+TEMPLATES_DIR = BASE_DIR / "templates"
+OUTPUT_DIR = BASE_DIR / "generated" / "network"
+COMPOSE_FILE = OUTPUT_DIR / "docker-compose.yml"
 
-def _render(text: str, config: dict[str, Any]) -> str:
-    """Replace {{key}} and strip {{#flag}}...{{/flag}} blocks based on config booleans."""
-    # Handle conditional blocks {{#key}}...{{/key}}
-    def replace_block(match):
-        key = match.group(1)
-        content = match.group(2)
-        value = config.get(key, False)
-        if isinstance(value, str):
-            value = value.lower() not in ("false", "0", "")
-        return content if value else ""
-
-    text = re.sub(r"\{\{#(\w+)\}\}(.*?)\{\{/\1\}\}", replace_block, text, flags=re.DOTALL)
-
-    # Replace {{key}} tokens
-    for key, value in config.items():
-        text = text.replace("{{" + key + "}}", str(value) if value is not None else "")
-
-    return text
+SUPPORTED_TYPES = {"host", "switch", "router"}
+TRANSIT_PREFIX = ipaddress.ip_network("10.255.0.0/16")
+TRANSIT_MASK = 29
 
 
-def _build_device_context(device: dict, output_dir: Path, networks: list[dict] = None) -> Path:
-    """Copy template for device type, render all files, return context path."""
-    device_id = device["id"]
-    device_type = device["type"]
-    config = dict(device.get("config", {}))
+def generate(topology: dict[str, Any]) -> str:
+    """
+    Generate docker-compose.yml plus one build context per device.
 
-    # For routers, build ip_address and interfaces from the exported interfaces map
-    if device_type == "router" and networks:
-        iface_map = config.get("interfaces") or {}
-        if iface_map and isinstance(iface_map, dict):
-            ips   = [v["ip"]             for v in iface_map.values() if isinstance(v, dict) and v.get("ip")]
-            masks = [v.get("mask", "24") for v in iface_map.values() if isinstance(v, dict) and v.get("ip")]
-            subnets = [v.get("subnet")   for v in iface_map.values() if isinstance(v, dict) and v.get("ip")]
-            config.setdefault("ip_address", ips[0] if ips else "")
+    Output folder:
+        project/backend/generated/network/
+            docker-compose.yml
+            host_xxxxx/
+            router_xxxxx/
+            switch_xxxxx/
+    """
+    normalized = normalize_and_validate(topology)
 
-            iface_cmds = []
-            for i, (ip, mask, subnet) in enumerate(zip(ips, masks, subnets)):
-                iface_cmds.append(f"ip addr add {ip}/{mask} dev eth{i} 2>/dev/null || true")
-                iface_cmds.append(f"ip link set eth{i} up")
-                if subnet:
-                    iface_cmds.append(f"ip route add {subnet}/{mask} dev eth{i} 2>/dev/null || true")
+    reset_output_dir()
 
-            config["interfaces"] = "\n".join(iface_cmds)
-        else:
-            raw_nets = device.get("networks") or ([device["network"]] if device.get("network") else [])
-            iface_cmds = []
-            for i, net_id in enumerate(raw_nets):
-                net = next((n for n in networks if n["id"] == net_id), None)
-                if not net:
-                    continue
-                cfg = net.get("config", {})
-                ip, mask, subnet = cfg.get("gateway"), cfg.get("mask", "24"), cfg.get("subnet")
-                if ip:
-                    iface_cmds.append(f"ip addr add {ip}/{mask} dev eth{i} 2>/dev/null || true")
-                    iface_cmds.append(f"ip link set eth{i} up")
-                    if subnet:
-                        iface_cmds.append(f"ip route add {subnet}/{mask} dev eth{i} 2>/dev/null || true")
-            if iface_cmds:
-                first_ip = next((n.get("config", {}).get("gateway") for n in
-                                 [next((n for n in networks if n["id"] == rid), None)
-                                  for rid in raw_nets] if n), None)
-                config.setdefault("ip_address", first_ip or "")
-                config["interfaces"] = "\n".join(iface_cmds)
-
-    template_path = TEMPLATES_DIR / device_type
-    if not template_path.exists():
-        raise ValueError(f"No template found for device type '{device_type}'")
-
-    context_path = output_dir / device_id
-    if context_path.exists():
-        shutil.rmtree(context_path)
-    shutil.copytree(template_path, context_path)
-
-    for file in context_path.iterdir():
-        if file.suffix in RENDERABLE_EXTENSIONS:
-            rendered = _render(file.read_text(), config)
-            file.write_text(rendered)
-
-    return context_path
-
-
-def _network_to_compose_entry(network: dict) -> dict:
-    """Turn a network definition into a docker-compose networks entry."""
-    cfg = network.get("config", {})
-    entry: dict = {"driver": "bridge"}
-
-    ipam_config: dict = {}
-    if cfg.get("subnet") and cfg.get("mask"):
-        ipam_config["subnet"] = f"{cfg['subnet']}/{cfg['mask']}"
-    if cfg.get("gateway"):
-        ipam_config["gateway"] = cfg["gateway"]
-
-    if ipam_config:
-        entry["ipam"] = {"driver": "default", "config": [ipam_config]}
-
-    return entry
-
-
-def _device_to_compose_service(device: dict, networks: list[dict]) -> dict:
-    """Turn a device into a docker-compose service entry."""
-    device_id = device["id"]
-    device_type = device["type"]
-    config = device.get("config", {})
-
-    # Support both old single `network` string and new `networks` array
-    raw = device.get("networks") or ([device["network"]] if device.get("network") else [])
-    device_network_ids: list[str] = [n for n in raw if n]
-
-    service: dict = {
-        "build": {"context": f"./output/{device_id}"},
-        "container_name": device_id,
-        "hostname": config.get("hostname", device_id),
-        "cap_add": ["NET_ADMIN", "SYS_ADMIN"],
-        "restart": "unless-stopped",
+    compose: dict[str, Any] = {
+        "services": {},
+        "networks": build_compose_networks(normalized["networks_by_id"]),
     }
 
-    if device_type == "router":
-        service["privileged"] = True
-        service["sysctls"] = {"net.ipv4.ip_forward": 1}
+    for device in normalized["devices"]:
+        device_type = device["type"]
 
-    if device_network_ids:
-        service["networks"] = {}
-        for net_id in device_network_ids:
-            net = next((n for n in networks if n["id"] == net_id), None)
-            net_cfg = net.get("config", {}) if net else {}
-            entry: dict = {}
-            # Routers get no static IP in compose — Docker owns the gateway IP on the bridge.
-            # The actual routing IPs are configured inside the container via init.sh.
-            if device_type == "router":
-                pass
-            elif config.get("ip_address"):
-                entry["ipv4_address"] = config["ip_address"]
-            service["networks"][net_id] = entry if entry else None
-    
-    return service
+        if device_type == "host":
+            render_host_context(device)
+            service = build_host_service(device, normalized)
+        elif device_type == "switch":
+            render_switch_context(device)
+            service = build_switch_service(device, normalized)
+        elif device_type == "router":
+            render_router_context(device)
+            service = build_router_service(device, normalized)
+        else:
+            raise ValueError(f"Unsupported device type: {device_type}")
+
+        compose["services"][device["id"]] = service
+
+    yaml_text = yaml.safe_dump(compose, sort_keys=False, default_flow_style=False)
+    COMPOSE_FILE.write_text(yaml_text, encoding="utf-8")
+    print(COMPOSE_FILE)
+    return yaml_text
 
 
-def generate(topology: dict) -> str:
-    """
-    Main entry point.
-    Accepts the topology JSON, renders all device contexts, and returns
-    the docker-compose.yml content as a string.
-    """
+def reset_output_dir() -> None:
+    if OUTPUT_DIR.exists():
+        shutil.rmtree(OUTPUT_DIR)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    devices: list[dict] = topology.get("devices", [])
-    networks: list[dict] = topology.get("networks", [])
 
-    services = {}
+def router_router_link_key(a: str, b: str) -> str:
+    return "__".join(sorted([a, b]))
+
+
+def transit_network_id_for(a: str, b: str) -> str:
+    left, right = sorted([a, b])
+    return f"transit_{left}_{right}"
+
+
+def transit_network_id_from_subnet(subnet: str, mask: str) -> str:
+    safe_subnet = subnet.replace(".", "_").replace(":", "_")
+    return f"transit_{safe_subnet}_{mask}"
+
+
+def add_transit_networks_for_router_links(
+    networks_by_id: dict[str, dict[str, Any]],
+    devices_by_id: dict[str, dict[str, Any]],
+    links: list[dict[str, Any]],
+) -> None:
+    """
+    Adds Docker networks for router-router links using the user-defined
+    subnet/mask from the router interface configs.
+
+    Each router-router link should have interface config on both routers.
+    """
+    seen_links: set[str] = set()
+
+    for link in links:
+        source_id = link.get("source")
+        target_id = link.get("target")
+
+        source = devices_by_id.get(source_id)
+        target = devices_by_id.get(target_id)
+
+        if not source or not target:
+            continue
+
+        if source.get("type") != "router" or target.get("type") != "router":
+            continue
+
+        key = router_router_link_key(source_id, target_id)
+        if key in seen_links:
+            continue
+
+        seen_links.add(key)
+
+        source_interfaces = (source.get("config") or {}).get("interfaces") or {}
+        target_interfaces = (target.get("config") or {}).get("interfaces") or {}
+
+        source_iface = source_interfaces.get(target_id)
+        target_iface = target_interfaces.get(source_id)
+
+        if not source_iface:
+            raise ValueError(
+                f"Router-router link {source_id} <-> {target_id} is missing "
+                f"interface config on {source_id}"
+            )
+
+        if not target_iface:
+            raise ValueError(
+                f"Router-router link {source_id} <-> {target_id} is missing "
+                f"interface config on {target_id}"
+            )
+
+        source_ip = source_iface.get("ip")
+        target_ip = target_iface.get("ip")
+
+        source_subnet = source_iface.get("subnet")
+        source_mask = str(source_iface.get("mask", ""))
+
+        target_subnet = target_iface.get("subnet")
+        target_mask = str(target_iface.get("mask", ""))
+
+        if not source_ip or not source_subnet or not source_mask:
+            raise ValueError(
+                f"Router {source_id} interface to {target_id} needs ip, subnet and mask"
+            )
+
+        if not target_ip or not target_subnet or not target_mask:
+            raise ValueError(
+                f"Router {target_id} interface to {source_id} needs ip, subnet and mask"
+            )
+
+        try:
+            source_net = ipaddress.ip_network(
+                f"{source_subnet}/{source_mask}",
+                strict=False,
+            )
+            target_net = ipaddress.ip_network(
+                f"{target_subnet}/{target_mask}",
+                strict=False,
+            )
+            source_ip_obj = ipaddress.ip_address(source_ip)
+            target_ip_obj = ipaddress.ip_address(target_ip)
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid transit config for router-router link "
+                f"{source_id} <-> {target_id}"
+            ) from exc
+
+        if source_net != target_net:
+            raise ValueError(
+                f"Router-router link {source_id} <-> {target_id} has mismatched "
+                f"transit networks: {source_net} and {target_net}"
+            )
+
+        if source_ip_obj not in source_net:
+            raise ValueError(
+                f"Router {source_id} IP {source_ip} is not inside transit network {source_net}"
+            )
+
+        if target_ip_obj not in source_net:
+            raise ValueError(
+                f"Router {target_id} IP {target_ip} is not inside transit network {source_net}"
+            )
+
+        if source_ip_obj == target_ip_obj:
+            raise ValueError(
+                f"Router-router link {source_id} <-> {target_id} uses duplicate IP {source_ip}"
+            )
+
+        # Docker bridge normally reserves the first usable IP as the bridge gateway.
+        first_usable = next(source_net.hosts(), None)
+        if first_usable and (source_ip_obj == first_usable or target_ip_obj == first_usable):
+            raise ValueError(
+                f"Transit network {source_net} should not use {first_usable} for a router. "
+                f"Docker usually reserves it as the bridge gateway."
+            )
+
+        network_id = transit_network_id_from_subnet(
+            str(source_net.network_address),
+            str(source_net.prefixlen),
+        )
+
+        if network_id not in networks_by_id:
+            networks_by_id[network_id] = {
+                "id": network_id,
+                "config": {
+                    "subnet": str(source_net.network_address),
+                    "mask": str(source_net.prefixlen),
+                },
+                "members": [
+                    source_id,
+                    target_id,
+                ],
+                "generated": True,
+                "type": "transit",
+            }
+        else:
+            members = networks_by_id[network_id].setdefault("members", [])
+            for router_id in [source_id, target_id]:
+                if router_id not in members:
+                    members.append(router_id)
+
+def generate_router_static_routes(
+    devices: list[dict[str, Any]],
+    networks_by_id: dict[str, dict[str, Any]],
+    devices_by_id: dict[str, dict[str, Any]],
+) -> None:
+    routers = [d for d in devices if d["type"] == "router"]
+    routers_by_id = {r["id"]: r for r in routers}
+
+    # router_id -> set of directly connected network ids
+    router_networks: dict[str, set[str]] = {
+        r["id"]: {a["network_id"] for a in r.get("_attachments", [])}
+        for r in routers
+    }
+
+    # router graph: router -> neighbor router -> next-hop IP of neighbor
+    adjacency: dict[str, dict[str, str]] = {r["id"]: {} for r in routers}
+
+    for router in routers:
+        router_id = router["id"]
+        interfaces = (router.get("config") or {}).get("interfaces") or {}
+
+        for peer_id, iface in interfaces.items():
+            peer = devices_by_id.get(peer_id)
+            if not peer or peer.get("type") != "router":
+                continue
+
+            peer_interfaces = (peer.get("config") or {}).get("interfaces") or {}
+            reverse_iface = peer_interfaces.get(router_id)
+
+            if not reverse_iface or not reverse_iface.get("ip"):
+                raise ValueError(
+                    f"Router link {router_id} <-> {peer_id} is missing reverse interface IP"
+                )
+
+            # From router_id, the next hop to peer_id is the peer's IP
+            # on the shared transit network.
+            adjacency[router_id][peer_id] = reverse_iface["ip"]
+
+    for router in routers:
+        router_id = router["id"]
+        routes: list[dict[str, str]] = []
+
+        # BFS over router graph.
+        visited = {router_id}
+        queue: list[tuple[str, str | None]] = [(router_id, None)]
+        # tuple: current_router_id, first_hop_router_id
+
+        while queue:
+            current_id, first_hop = queue.pop(0)
+
+            for neighbor_id in adjacency.get(current_id, {}):
+                if neighbor_id in visited:
+                    continue
+
+                visited.add(neighbor_id)
+
+                next_first_hop = first_hop or neighbor_id
+                queue.append((neighbor_id, next_first_hop))
+
+                # For every network connected to this newly reached router,
+                # add a route if the original router is not directly connected to it.
+                for network_id in router_networks.get(neighbor_id, set()):
+                    if network_id in router_networks[router_id]:
+                        continue
+
+                    network = networks_by_id[network_id]
+
+                    # Do not add routes to transit networks; only LAN networks.
+                    if network.get("type") == "transit" or network.get("generated") is True:
+                        continue
+
+                    destination = str(network_to_ipaddress(network))
+
+                    via = adjacency[router_id][next_first_hop]
+
+                    route = {
+                        "to": destination,
+                        "via": via,
+                    }
+
+                    if route not in routes:
+                        routes.append(route)
+
+        router["_static_routes"] = routes
+
+def normalize_and_validate(topology: dict[str, Any]) -> dict[str, Any]:
+    networks = topology.get("networks") or []
+    devices = topology.get("devices") or []
+    links = topology.get("links") or []
+
+    if not isinstance(networks, list):
+        raise ValueError("topology.networks must be a list")
+    if not isinstance(devices, list):
+        raise ValueError("topology.devices must be a list")
+    if not isinstance(links, list):
+        raise ValueError("topology.links must be a list")
+
+    networks_by_id: dict[str, dict[str, Any]] = {}
+    for network in networks:
+        validate_network(network)
+        network_id = network["id"]
+        if network_id in networks_by_id:
+            raise ValueError(f"Duplicate network id: {network_id}")
+        networks_by_id[network_id] = network
+
+    devices_by_id: dict[str, dict[str, Any]] = {}
     for device in devices:
-        _build_device_context(device, OUTPUT_DIR, networks)
-        services[device["id"]] = _device_to_compose_service(device, networks)
+        validate_device_basic(device)
+        device_id = device["id"]
+        if device_id in devices_by_id:
+            raise ValueError(f"Duplicate device id: {device_id}")
+        devices_by_id[device_id] = device
 
-    compose_networks = {n["id"]: _network_to_compose_entry(n) for n in networks}
+    validate_network_members(networks_by_id, devices_by_id)
+    validate_links(links, devices_by_id)
 
-    compose = _build_yaml(services, compose_networks)
+    # Router-router links need generated transit Docker networks.
+    add_transit_networks_for_router_links(networks_by_id, devices_by_id, links)
 
-    output_file = OUTPUT_DIR / "docker-compose.yml"
-    output_file.write_text(compose)
+    # Mutates device dictionaries by adding generated fields used by device builders.
+    for device in devices:
+        if device["type"] in {"host", "switch"}:
+            attach_single_network_device(device, networks_by_id)
+        elif device["type"] == "router":
+            attach_router_networks(device, networks_by_id, devices_by_id)
 
-    return compose
+    validate_ips(devices, networks_by_id)
 
+    generate_router_static_routes(devices, networks_by_id, devices_by_id)
 
-def _build_yaml(services: dict, networks: dict) -> str:
-    """Minimal YAML serialiser — avoids a PyYAML dependency for simple structures."""
-    lines = ["services:"]
-    for svc_name, svc in services.items():
-        lines.append(f"  {svc_name}:")
-        _dict_to_yaml(svc, lines, indent=4)
-
-    if networks:
-        lines.append("")
-        lines.append("networks:")
-        for net_name, net in networks.items():
-            lines.append(f"  {net_name}:")
-            _dict_to_yaml(net, lines, indent=4)
-
-    return "\n".join(lines) + "\n"
+    return {
+        "networks": networks,
+        "networks_by_id": networks_by_id,
+        "devices": devices,
+        "devices_by_id": devices_by_id,
+        "links": links,
+    }
 
 
-def _dict_to_yaml(obj: Any, lines: list, indent: int) -> None:
-    pad = " " * indent
-    if isinstance(obj, dict):
-        for k, v in obj.items():
-            if v is None:
-                lines.append(f"{pad}{k}: {{}}")
-            elif isinstance(v, (dict, list)):
-                lines.append(f"{pad}{k}:")
-                _dict_to_yaml(v, lines, indent + 2)
-            elif isinstance(v, bool):
-                lines.append(f"{pad}{k}: {'true' if v else 'false'}")
-            else:
-                lines.append(f"{pad}{k}: {v}")
-    elif isinstance(obj, list):
-        for item in obj:
-            if isinstance(item, dict):
-                first = True
-                for k, v in item.items():
-                    prefix = f"{pad}- " if first else f"{pad}  "
-                    first = False
-                    if isinstance(v, (dict, list)):
-                        lines.append(f"{prefix}{k}:")
-                        _dict_to_yaml(v, lines, indent + 4)
-                    else:
-                        lines.append(f"{prefix}{k}: {v}")
-            else:
-                lines.append(f"{pad}- {item}")
+def validate_network(network: dict[str, Any]) -> None:
+    network_id = network.get("id")
+    if not network_id:
+        raise ValueError("Every network needs an id")
 
-if __name__ == "__main__":
-    # Python program to demonstrate
-    # Conversion of JSON data to
-    # dictionary
+    config = network.get("config") or {}
+    subnet = config.get("subnet")
+    mask = str(config.get("mask", ""))
 
-    # importing the module
-    import json
+    if not subnet or not mask:
+        raise ValueError(f"Network {network_id} needs config.subnet and config.mask")
 
-    # Opening JSON file
-    with open('/Users/joselopes/Desktop/vno-topology-1777672840623.json') as json_file:
-        data = json.load(json_file)
+    try:
+        ipaddress.ip_network(f"{subnet}/{mask}", strict=False)
+    except ValueError as exc:
+        raise ValueError(f"Invalid subnet for network {network_id}: {subnet}/{mask}") from exc
 
-        generate(data)
+    members = network.get("members", [])
+    if not isinstance(members, list):
+        raise ValueError(f"Network {network_id}.members must be a list")
+
+
+def validate_device_basic(device: dict[str, Any]) -> None:
+    device_id = device.get("id")
+    device_type = device.get("type")
+
+    if not device_id:
+        raise ValueError("Every device needs an id")
+    if device_type not in SUPPORTED_TYPES:
+        raise ValueError(f"Device {device_id} has unsupported type: {device_type}")
+
+    if not isinstance(device.get("config", {}), dict):
+        raise ValueError(f"Device {device_id}.config must be an object")
+    if not isinstance(device.get("networks", []), list):
+        raise ValueError(f"Device {device_id}.networks must be a list")
+
+
+def validate_network_members(
+    networks_by_id: dict[str, dict[str, Any]],
+    devices_by_id: dict[str, dict[str, Any]],
+) -> None:
+    for network_id, network in networks_by_id.items():
+        for member_id in network.get("members", []):
+            if member_id not in devices_by_id:
+                raise ValueError(f"Network {network_id} references unknown member {member_id}")
+
+
+def validate_links(links: list[dict[str, Any]], devices_by_id: dict[str, dict[str, Any]]) -> None:
+    for index, link in enumerate(links):
+        source = link.get("source")
+        target = link.get("target")
+        if source not in devices_by_id:
+            raise ValueError(f"Link #{index} references unknown source {source}")
+        if target not in devices_by_id:
+            raise ValueError(f"Link #{index} references unknown target {target}")
+
+
+def attach_single_network_device(
+    device: dict[str, Any],
+    networks_by_id: dict[str, dict[str, Any]],
+) -> None:
+    device_id = device["id"]
+    network_ids = device.get("networks") or []
+
+    if len(network_ids) != 1:
+        raise ValueError(f"{device['type']} {device_id} must belong to exactly one network")
+
+    network_id = network_ids[0]
+    if network_id not in networks_by_id:
+        raise ValueError(f"Device {device_id} references unknown network {network_id}")
+
+    device["_attachments"] = [
+        {
+            "network_id": network_id,
+            "ip": device.get("config", {}).get("ip_address"),
+        }
+    ]
+
+
+def attach_router_networks(
+    router: dict[str, Any],
+    networks_by_id: dict[str, dict[str, Any]],
+    devices_by_id: dict[str, dict[str, Any]],
+) -> None:
+    router_id = router["id"]
+    interfaces = (router.get("config") or {}).get("interfaces") or {}
+
+    if not interfaces:
+        raise ValueError(f"Router {router_id} needs config.interfaces")
+
+    attachments: list[dict[str, str]] = []
+    seen_networks: set[str] = set()
+
+    for peer_id, iface in interfaces.items():
+        if peer_id not in devices_by_id:
+            raise ValueError(f"Router {router_id} interface references unknown device {peer_id}")
+
+        peer = devices_by_id[peer_id]
+        peer_type = peer.get("type")
+
+        ip = iface.get("ip")
+        if not ip:
+            raise ValueError(f"Router {router_id} interface to {peer_id} needs an ip")
+
+        if peer_type == "router":
+            subnet = iface.get("subnet")
+            mask = str(iface.get("mask", ""))
+
+            if not subnet or not mask:
+                raise ValueError(f"Router {router_id} interface to {peer_id} needs subnet and mask")
+
+            ip_net = ipaddress.ip_network(f"{subnet}/{mask}", strict=False)
+            network_id = transit_network_id_from_subnet(
+                str(ip_net.network_address),
+                str(ip_net.prefixlen),
+            )
+
+            if network_id not in networks_by_id:
+                raise ValueError(
+                    f"Router-router interface {router_id} -> {peer_id} has no transit network"
+                )
+
+        else:
+            peer_networks = peer.get("networks") or []
+
+            if len(peer_networks) != 1:
+                raise ValueError(
+                    f"Router {router_id} interface peer {peer_id} must belong to exactly one network"
+                )
+
+            network_id = peer_networks[0]
+
+            if network_id not in networks_by_id:
+                raise ValueError(f"Router {router_id} references unknown network {network_id}")
+
+        if network_id in seen_networks:
+            continue
+
+        attachments.append(
+            {
+                "network_id": network_id,
+                "ip": ip,
+                "peer_id": peer_id,
+            }
+        )
+        seen_networks.add(network_id)
+
+    router["_attachments"] = attachments
+
+
+def validate_ips(devices: list[dict[str, Any]], networks_by_id: dict[str, dict[str, Any]]) -> None:
+    used_ips: dict[str, str] = {}
+
+    for device in devices:
+        for attachment in device.get("_attachments", []):
+            network_id = attachment["network_id"]
+            ip = attachment.get("ip")
+
+            # Switches may not need a static IP. They are cosmetic/debug containers.
+            if not ip:
+                continue
+
+            network = networks_by_id[network_id]
+            ip_net = network_to_ipaddress(network)
+
+            try:
+                ip_obj = ipaddress.ip_address(ip)
+            except ValueError as exc:
+                raise ValueError(f"Device {device['id']} has invalid IP {ip}") from exc
+
+            if ip_obj not in ip_net:
+                raise ValueError(
+                    f"Device {device['id']} IP {ip} is not inside network {network_id} ({ip_net})"
+                )
+
+            key = f"{network_id}:{ip}"
+            if key in used_ips:
+                raise ValueError(
+                    f"Duplicate IP {ip} on network {network_id}: {used_ips[key]} and {device['id']}"
+                )
+            used_ips[key] = device["id"]
+
+
+def network_to_ipaddress(network: dict[str, Any]) -> ipaddress.IPv4Network | ipaddress.IPv6Network:
+    config = network.get("config") or {}
+    return ipaddress.ip_network(f"{config['subnet']}/{config['mask']}", strict=False)
+
+
+def build_compose_networks(networks_by_id: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    compose_networks: dict[str, Any] = {}
+
+    for network_id, network in networks_by_id.items():
+        config = network.get("config") or {}
+        subnet = f"{config['subnet']}/{config['mask']}"
+
+        network_def: dict[str, Any] = {
+            "driver": "bridge",
+            "ipam": {
+                "config": [
+                    {
+                        "subnet": subnet,
+                    }
+                ]
+            },
+        }
+
+        # Optional: Compose supports this. However, beware: if Docker owns the
+        # network gateway IP, it may conflict with your router container using
+        # the same address. Therefore, by default, do NOT set Docker's gateway
+        # to the router IP. Let the container enforce default routes instead.
+        #
+        # If you later want Docker's bridge gateway to be explicit, use a
+        # different gateway IP than your router interface.
+
+        compose_networks[network_id] = network_def
+
+    return compose_networks
+
+
+def copy_template(device_type: str, destination: Path) -> None:
+    template_dir = TEMPLATES_DIR / device_type
+    if not template_dir.exists():
+        raise ValueError(f"Missing template directory: {template_dir}")
+
+    shutil.copytree(template_dir, destination, dirs_exist_ok=True)
+
+
+def render_template_file(path: Path, variables: dict[str, Any]) -> None:
+    text = path.read_text(encoding="utf-8")
+    for key, value in variables.items():
+        text = text.replace("{{" + key + "}}", "" if value is None else str(value))
+    path.write_text(text, encoding="utf-8")

@@ -1,12 +1,37 @@
-#!/bin/sh
+#!/bin/bash
+
 set -e
 
-ip addr add {{ip_address}}/{{subnet_mask}} dev eth0 2>/dev/null || true
-ip link set eth0 up
-ip route add default via {{gateway}} 2>/dev/null || true
+GATEWAY="{{gateway}}"
 
-echo "{{hostname}}" > /etc/hostname
-hostname {{hostname}}
+_fix_gateway_once() {
+    CURRENT=$(ip route show default 2>/dev/null | awk '{print $3; exit}')
 
-echo "[host] {{hostname}} ready — {{ip_address}}"
-exec tail -f /dev/null
+    if [ "$CURRENT" != "$GATEWAY" ]; then
+        ip route del default 2>/dev/null || true
+        ip route add default via "$GATEWAY" 2>/dev/null || true
+    fi
+}
+
+if [ -n "$GATEWAY" ]; then
+    (
+        for i in $(seq 1 10); do
+            _fix_gateway_once
+            sleep 1
+        done
+
+        while true; do
+            _fix_gateway_once
+            sleep 30
+        done
+    ) &
+
+    sleep 2
+    echo "[host] Default gateway enforced to $GATEWAY"
+else
+    echo "[host] No gateway configured"
+fi
+
+echo "[host] started as $(hostname)"
+
+tail -f /dev/null
