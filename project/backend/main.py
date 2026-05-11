@@ -33,6 +33,7 @@ class Topology(BaseModel):
 # This is fine for an MVP, but not ideal for multiple users/sessions.
 LAST_TOPOLOGY: dict[str, Any] | None = None
 LAST_DEVICE_NAME_MAP: dict[str, str] = {}
+LAST_DEVICE_IP_MAP: dict[str, str] = {}
 
 
 def _container_name_for_device(device: dict[str, Any]) -> str:
@@ -213,6 +214,48 @@ def ping_host(
         )
 
     return output
+
+@app.get("/command", response_class=PlainTextResponse)
+def run_command_on_host(
+    host: str = Query(..., description="Device id, hostname, or container name"),
+    command: str = Query(..., description="Command to run inside the container"),
+):
+    """
+    Run an arbitrary command inside a generated container.
+
+    Example:
+      /command?host=host-03&command=ip route show
+      /command?host=router-01&command=ip addr
+      /command?host=host_cpmgz&command=ping -c 4 10.0.3.3
+    """
+    container = LAST_DEVICE_NAME_MAP.get(host, host)
+
+    # Use sh -lc so commands with spaces, pipes, redirects, etc. work.
+    cmd = [
+        "docker",
+        "exec",
+        container,
+        "sh",
+        "-lc",
+        command,
+    ]
+
+    result = _run_command(cmd, timeout=30)
+
+    output = ""
+    if result.stdout:
+        output += result.stdout
+    if result.stderr:
+        output += "\n--- stderr ---\n"
+        output += result.stderr
+
+    if result.returncode != 0:
+        raise HTTPException(
+            status_code=500,
+            detail=output or f"Command failed with exit code {result.returncode}",
+        )
+
+    return output or ""
 
 
 @app.post("/stop")
