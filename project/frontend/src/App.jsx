@@ -416,6 +416,41 @@ export default function App() {
     }
   }, [reactFlowInstance, theme.canvasBg]);
 
+  const handleRun = useCallback(async () => {
+    const topology = buildTopology(nodes, edges);
+    try {
+      const res = await fetch('http://localhost:8000/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(topology),
+      });
+
+      if (!res.ok) {
+        // Attempt to parse error detail from backend
+        let detail = 'Run failed';
+        try {
+          const err = await res.json();
+          if (err.detail) {
+            // Backend returns {detail: {...}} or {detail: string}
+            detail = typeof err.detail === 'string' ? err.detail : err.detail.message || JSON.stringify(err.detail);
+          } else if (err.message) {
+            detail = err.message;
+          } else {
+            detail = `${res.status} ${res.statusText}`;
+          }
+        } catch (e) {
+          detail = `${res.status} ${res.statusText}`;
+        }
+        return { success: false, error: detail };
+      }
+
+      const data = await res.json();
+      return { success: true, message: data.message || 'Ran correctly' };
+    } catch (err) {
+      return { success: false, error: err.message || 'Network error' };
+    }
+  }, [nodes, edges]);
+
   const startResizing = React.useCallback(() => setIsDragging(true), []);
   const stopResizing = React.useCallback(() => setIsDragging(false), []);
 
@@ -770,6 +805,7 @@ export default function App() {
         isDarkMode={isDarkMode}
         toggleTheme={() => setIsDarkMode(!isDarkMode)}
         theme={theme}
+        onRun={handleRun}
     />
 
       <div style={dynamicStyles.body}>

@@ -1,8 +1,12 @@
 import React, { useState } from 'react';
 import logo from '../assets/logo.png';
+import Notification from './Notification';
 
-export default function Toolbar({ onExportJSON, onExportPNG, onImport, onLoadExample, isDarkMode, toggleTheme, theme }) {
+export default function Toolbar({ onExportJSON, onExportPNG, onImport, onLoadExample, isDarkMode, toggleTheme, theme, onRun, runConfigUrl }) {
   const [isExportOpen, setIsExportOpen] = useState(false);
+  const [hovered, setHovered] = useState(null);
+  const [notification, setNotification] = useState(null);
+  const [isRunLoading, setIsRunLoading] = useState(false);
 
   // Fallback to prevent crashes if theme isn't fully loaded
   const currentTheme = theme || {
@@ -20,7 +24,13 @@ export default function Toolbar({ onExportJSON, onExportPNG, onImport, onLoadExa
   const styles = getStyles(currentTheme, isDarkMode, isExportOpen);
 
   return (
-    <div style={styles.bar}>
+    <>
+      <style>{`
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
+      <div style={styles.bar}>
       
       {/* --- LEFT SECTION --- */}
       <div style={styles.leftSection}>
@@ -39,38 +49,16 @@ export default function Toolbar({ onExportJSON, onExportPNG, onImport, onLoadExa
         </div>
       </div>
 
-      {/* --- RIGHT SECTION --- */}
-      <div style={styles.rightSection}>
-        <button onClick={onLoadExample} style={styles.exampleBtn} title="Load a pre-built example topology">
-          {/* --- STAR ICON --- */}
+      {/* --- CENTER SECTION (Example / Import / Export) --- */}
+      <div style={styles.centerSection}>
+        <button onClick={onLoadExample} style={{ ...styles.exampleBtn, ...(hovered === 'example' ? styles.buttonHover : {}) }} title="Load a pre-built example topology" onMouseEnter={() => setHovered('example')} onMouseLeave={() => setHovered(null)}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" strokeWidth="2" style={{ display: 'block' }}>
             <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
           </svg>
           <span>Example</span>
         </button>
 
-        {/* Theme Toggle Slider */}
-        <div style={styles.toggleTrack} onClick={toggleTheme}>
-          <svg style={{ ...styles.toggleIcon, left: 6 }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={currentTheme.textMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
-          </svg>
-          <svg style={{ ...styles.toggleIcon, right: 6 }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="5"></circle>
-            <line x1="12" y1="1" x2="12" y2="3"></line>
-            <line x1="12" y1="21" x2="12" y2="23"></line>
-            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
-            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
-            <line x1="1" y1="12" x2="3" y2="12"></line>
-            <line x1="21" y1="12" x2="23" y2="12"></line>
-            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
-            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
-          </svg>
-          {/* Knob uses accentBg (White in Dark Mode, Black in Light Mode) */}
-          <div style={styles.toggleKnob} />
-        </div>
-
-        {/* Import Button */}
-        <button onClick={onImport} style={styles.importBtn} title="Import topology from JSON file">
+        <button onClick={onImport} style={{ ...styles.exampleBtn, ...(hovered === 'import' ? styles.buttonHover : {}) }} title="Import topology from JSON file" onMouseEnter={() => setHovered('import')} onMouseLeave={() => setHovered(null)}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ flexShrink: 0 }}>
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="17 8 12 3 7 8"/>
@@ -79,22 +67,19 @@ export default function Toolbar({ onExportJSON, onExportPNG, onImport, onLoadExa
           <span>Import</span>
         </button>
 
-        {/* Export Dropdown */}
         <div style={styles.dropdownContainer}>
           <button 
             onClick={() => setIsExportOpen(!isExportOpen)} 
-            style={styles.exportBtn}
+            style={{ ...styles.exportBtn, ...(hovered === 'export' ? styles.exportHover : {}) }}
+            onMouseEnter={() => setHovered('export')}
+            onMouseLeave={() => setHovered(null)}
           >
-            {/* Download Icon */}
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ flexShrink: 0 }}>
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
               <polyline points="7 10 12 15 17 10"/>
               <line x1="12" y1="15" x2="12" y2="3"/>
             </svg>
-            
             <span>Export</span>
-            
-            {/* Animated Chevron */}
             <svg 
               width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
               style={{ 
@@ -107,7 +92,6 @@ export default function Toolbar({ onExportJSON, onExportPNG, onImport, onLoadExa
             </svg>
           </button>
 
-          {/* Popover Menu */}
           {isExportOpen && (
             <div style={styles.dropdownMenu}>
               <div 
@@ -136,7 +120,82 @@ export default function Toolbar({ onExportJSON, onExportPNG, onImport, onLoadExa
           )}
         </div>
       </div>
+
+      {/* --- RIGHT SECTION (Theme Toggle + Run) --- */}
+      <div style={styles.rightSection}>
+        <div style={styles.toggleTrack} onClick={toggleTheme}>
+          <svg style={{ ...styles.toggleIcon, left: 6 }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={currentTheme.textMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+          <svg style={{ ...styles.toggleIcon, right: 6 }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="5"></circle>
+            <line x1="12" y1="1" x2="12" y2="3"></line>
+            <line x1="12" y1="21" x2="12" y2="23"></line>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+            <line x1="1" y1="12" x2="3" y2="12"></line>
+            <line x1="21" y1="12" x2="23" y2="12"></line>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+          </svg>
+          <div style={styles.toggleKnob} />
+        </div>
+
+        <button
+          onClick={async () => {
+            if (isRunLoading) return;
+            setIsRunLoading(true);
+            try {
+              let res;
+              if (onRun) {
+                res = await onRun();
+              } else if (runConfigUrl) {
+                const r = await fetch(runConfigUrl, { method: 'POST' });
+                res = await r.json();
+              } else {
+                throw new Error('No run handler or URL provided');
+              }
+
+              if (res && (res.success === false || res.error)) {
+                setNotification({ type: 'error', message: res.error || res.message || 'Run failed' });
+              } else {
+                setNotification({ type: 'success', message: res && (res.message || 'Ran correctly') || 'Ran correctly' });
+              }
+            } catch (err) {
+              setNotification({ type: 'error', message: err.message || 'Unknown error' });
+            } finally {
+              setIsRunLoading(false);
+            }
+          }}
+          style={{ ...styles.runBtn, ...(hovered === 'run' && !isRunLoading ? styles.buttonHover : {}), ...(isRunLoading ? styles.runBtnLoading : {}) }}
+          title="Generate configuration and run topology"
+          onMouseEnter={() => !isRunLoading && setHovered('run')}
+          onMouseLeave={() => setHovered(null)}
+          disabled={isRunLoading}
+        >
+          {isRunLoading ? (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, animation: 'spin 1s linear infinite' }}>
+              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeDasharray="15.7 47.1" />
+            </svg>
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0 }}>
+              <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            </svg>
+          )}
+          <span>{isRunLoading ? 'Generating...' : 'Generate Config'}</span>
+        </button>
+      </div>
+
+      {/* Notification container rendered at bottom-right */}
+      {notification && (
+        <Notification
+          type={notification.type}
+          message={notification.message}
+          onClose={() => setNotification(null)}
+        />
+      )}
     </div>
+    </>
   );
 }
 
@@ -190,6 +249,13 @@ const getStyles = (theme, isDarkMode, isExportOpen) => ({
     alignItems: 'center',
     gap: 12,
   },
+  centerSection: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    justifyContent: 'center',
+    flex: 1,
+  },
   exampleBtn: {
     display: 'flex',
     alignItems: 'center',
@@ -204,6 +270,35 @@ const getStyles = (theme, isDarkMode, isExportOpen) => ({
     cursor: 'pointer',
     fontFamily: 'monospace',
     lineHeight: 1,
+  },
+  runBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    padding: '7px 14px',
+    background: 'transparent',
+    border: `1px solid ${theme.borderColor}`,
+    borderRadius: 6,
+    color: theme.textMain,
+    fontSize: 13,
+    fontWeight: 700,
+    lineHeight: 1,
+    cursor: 'pointer',
+    fontFamily: 'monospace',
+    transition: 'opacity 0.2s ease, background 0.12s ease',
+  },
+  runBtnLoading: {
+    opacity: 0.6,
+    cursor: 'not-allowed',
+    pointerEvents: 'none',
+  },
+  buttonHover: {
+    background: theme.controlsBg,
+    border: `1px solid ${theme.accentHover}`,
+  },
+  exportHover: {
+    filter: 'brightness(0.95)'
   },
   toggleTrack: {
     position: 'relative',
@@ -240,7 +335,7 @@ const getStyles = (theme, isDarkMode, isExportOpen) => ({
     justifyContent: 'center',
     gap: 6,
     padding: '7px 14px',
-    background: theme.controlsBg, // Gives it a subtle secondary button look
+    background: 'transparent',
     border: `1px solid ${theme.borderColor}`,
     borderRadius: 6,
     color: theme.textMain,
