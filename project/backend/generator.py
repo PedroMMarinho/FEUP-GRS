@@ -595,3 +595,10 @@ def render_template_file(path: Path, variables: dict[str, Any]) -> None:
     for key, value in variables.items():
         text = text.replace("{{" + key + "}}", "" if value is None else str(value))
     path.write_text(text, encoding="utf-8")
+
+if __name__ == "__main__":
+    import json
+
+    with open('/Users/joselopes/Desktop/vno-topology-1778491609278.json') as json_file:
+        data = json.load(json_file)
+        generate(data)
