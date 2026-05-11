@@ -15,6 +15,7 @@ import RouterNode from './nodes/RouterNode';
 import Toolbar from './components/Toolbar';
 import ConfigSidebar from './components/ConfigSidebar';
 import DeviceSidebar from './components/DeviceSidebar';
+import HostTerminal from './components/HostTerminal';
 import { EXAMPLE_NODES, EXAMPLE_EDGES } from './utils/exampleTopology';
 import { buildTopology, downloadJSON, downloadPNG, importTopology } from './utils/export';
 
@@ -394,6 +395,7 @@ export default function App() {
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
   const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const [hostTerminals, setHostTerminals] = useState([]);
   
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
   const [draggedDevice, setDraggedDevice] = useState(null);
@@ -450,6 +452,66 @@ export default function App() {
       return { success: false, error: err.message || 'Network error' };
     }
   }, [nodes, edges]);
+
+  const handleHostCommand = useCallback(async (host, command) => {
+    const params = new URLSearchParams({ host, command });
+    const res = await fetch(`http://localhost:8000/command?${params.toString()}`);
+
+    const text = await res.text();
+    if (!res.ok) {
+      throw new Error(formatCommandError(text, res.status));
+    }
+
+    return text;
+  }, []);
+
+  const handleOpenHostTerminal = useCallback((hostNode) => {
+    if (!hostNode) return;
+
+    const terminalId = `${hostNode.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const count = hostTerminals.length;
+    const offset = count * 26;
+
+    setHostTerminals((current) => current.concat({
+      id: terminalId,
+      hostId: hostNode.id,
+      hostName: hostNode.data?.config?.hostname || hostNode.id,
+      position: { x: 280 + offset, y: 110 + offset },
+    }));
+  }, [hostTerminals.length]);
+
+  function formatCommandError(responseText, status) {
+    if (!responseText) {
+      return `Command failed (${status})`;
+    }
+
+    try {
+      const payload = JSON.parse(responseText);
+      const detail = payload?.detail;
+
+      if (typeof detail === 'string') {
+        return detail.trim() || `Command failed (${status})`;
+      }
+
+      if (detail && typeof detail === 'object') {
+        const parts = [];
+        if (detail.message) parts.push(detail.message);
+        if (detail.stdout) parts.push(detail.stdout.trim());
+        if (detail.stderr) parts.push(detail.stderr.trim());
+
+        const formatted = parts.filter(Boolean).join('\n');
+        return formatted || `Command failed (${status})`;
+      }
+    } catch (error) {
+      // Not JSON, fall through to raw text.
+    }
+
+    return responseText.trim() || `Command failed (${status})`;
+  }
+
+  const handleCloseHostTerminal = useCallback((terminalId) => {
+    setHostTerminals((current) => current.filter((terminal) => terminal.id !== terminalId));
+  }, []);
 
   const startResizing = React.useCallback(() => setIsDragging(true), []);
   const stopResizing = React.useCallback(() => setIsDragging(false), []);
@@ -904,9 +966,25 @@ export default function App() {
             edges={edges}
             isDarkMode={isDarkMode} 
             theme={theme}
+            onHostCommand={handleHostCommand}
+            onOpenHostTerminal={handleOpenHostTerminal}
           />
         </div>
       </div>
+
+      {hostTerminals.map((terminal, index) => (
+        <HostTerminal
+          key={terminal.id}
+          isOpen
+          hostName={terminal.hostName}
+          hostId={terminal.hostId}
+          initialPosition={terminal.position}
+          zIndex={2000 + index}
+          onClose={() => handleCloseHostTerminal(terminal.id)}
+          onExecuteCommand={handleHostCommand}
+          theme={theme}
+        />
+      ))}
     </div>
   );
 }
