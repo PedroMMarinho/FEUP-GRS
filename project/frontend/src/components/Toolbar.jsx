@@ -1,13 +1,15 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import logo from '../assets/logo.png';
 import Notification from './Notification';
 
 export default function Toolbar({ onExportJSON, onExportPNG, onImport, onLoadExample, isDarkMode, toggleTheme, theme, onRun, onStop, runConfigUrl }) {
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [hovered, setHovered] = useState(null);
+  const [hoveredExportItem, setHoveredExportItem] = useState(null);
   const [notification, setNotification] = useState(null);
   const [runPhase, setRunPhase] = useState('idle');
   const runAbortControllerRef = useRef(null);
+  const exportMenuRef = useRef(null);
 
   // Fallback to prevent crashes if theme isn't fully loaded
   const currentTheme = theme || {
@@ -23,6 +25,20 @@ export default function Toolbar({ onExportJSON, onExportPNG, onImport, onLoadExa
   };
 
   const styles = getStyles(currentTheme, isDarkMode, isExportOpen);
+
+  useEffect(() => {
+    const handlePointerDown = (event) => {
+      if (!isExportOpen) return;
+
+      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target)) {
+        setIsExportOpen(false);
+        setHoveredExportItem(null);
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, [isExportOpen]);
 
   return (
     <>
@@ -68,7 +84,7 @@ export default function Toolbar({ onExportJSON, onExportPNG, onImport, onLoadExa
           <span>Import</span>
         </button>
 
-        <div style={styles.dropdownContainer}>
+        <div style={styles.dropdownContainer} ref={exportMenuRef}>
           <button 
             onClick={() => setIsExportOpen(!isExportOpen)} 
             style={{ ...styles.exampleBtn, ...(hovered === 'export' ? styles.buttonHover : {}) }}
@@ -96,8 +112,13 @@ export default function Toolbar({ onExportJSON, onExportPNG, onImport, onLoadExa
           {isExportOpen && (
             <div style={styles.dropdownMenu}>
               <div 
-                style={styles.dropdownItem} 
-                onClick={() => { onExportJSON?.(); setIsExportOpen(false); }}
+                style={{
+                  ...styles.dropdownItem,
+                  ...(hoveredExportItem === 'json' ? styles.dropdownItemHover : {}),
+                }}
+                onMouseEnter={() => setHoveredExportItem('json')}
+                onMouseLeave={() => setHoveredExportItem(null)}
+                onClick={() => { onExportJSON?.(); setIsExportOpen(false); setHoveredExportItem(null); }}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={currentTheme.textMuted} strokeWidth="2">
                   <polyline points="16 18 22 12 16 6"></polyline>
@@ -107,8 +128,13 @@ export default function Toolbar({ onExportJSON, onExportPNG, onImport, onLoadExa
               </div>
               <div style={styles.dropdownDivider} />
               <div 
-                style={styles.dropdownItem} 
-                onClick={() => { onExportPNG?.(); setIsExportOpen(false); }}
+                style={{
+                  ...styles.dropdownItem,
+                  ...(hoveredExportItem === 'png' ? styles.dropdownItemHover : {}),
+                }}
+                onMouseEnter={() => setHoveredExportItem('png')}
+                onMouseLeave={() => setHoveredExportItem(null)}
+                onClick={() => { onExportPNG?.(); setIsExportOpen(false); setHoveredExportItem(null); }}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={currentTheme.textMuted} strokeWidth="2">
                   <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
@@ -454,6 +480,9 @@ const getStyles = (theme, isDarkMode, isExportOpen) => ({
     cursor: 'pointer',
     background: 'transparent',
     transition: 'background 0.2s ease',
+  },
+  dropdownItemHover: {
+    background: theme.controlsBg,
   },
   dropdownDivider: {
     height: 1,

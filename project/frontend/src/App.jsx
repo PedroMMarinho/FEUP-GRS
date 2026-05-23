@@ -763,6 +763,27 @@ export default function App() {
     }
   }, [reactFlowInstance, selectedNodeId]);
 
+  const handleClearCanvas = useCallback(() => {
+    const hasContent = nodes.length > 0 || edges.length > 0;
+
+    if (!hasContent) {
+      setSelectedNodeId(null);
+      return;
+    }
+
+    const shouldDelete = window.confirm('Delete everything on the canvas? This cannot be undone.');
+
+    if (!shouldDelete) {
+      return;
+    }
+
+    setNodes([]);
+    setEdges([]);
+    setSelectedNodeId(null);
+    setDraggedDevice(null);
+    setHostTerminals([]);
+  }, [nodes.length, edges.length]);
+
   const handleLoadExample = useCallback(() => {
     setNodes(EXAMPLE_NODES);
     setEdges(EXAMPLE_EDGES);
@@ -913,10 +934,12 @@ export default function App() {
         <div style={dynamicStyles.leftSidebar}>
           {/* Removed minWidth so it safely shrinks to 0 without spilling out */}
           <div style={{ width: '100%', flexShrink: 0, height: '100%', overflow: 'hidden' }}>
-            <DeviceSidebar onAdd={handleAdd}
-            theme={theme}
-            isDarkMode={isDarkMode}
-            setDraggedDevice={setDraggedDevice} 
+            <DeviceSidebar
+              onAdd={handleAdd}
+              onClearCanvas={handleClearCanvas}
+              theme={theme}
+              isDarkMode={isDarkMode}
+              setDraggedDevice={setDraggedDevice}
             />
           </div>
           
