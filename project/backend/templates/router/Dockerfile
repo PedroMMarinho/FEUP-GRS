@@ -14,6 +14,8 @@ RUN apt-get update && apt-get install -y \
     dnsutils \
     traceroute \
     netcat \
+    frr \
+    frr-pythontools \
     && rm -rf /var/lib/apt/lists/*
 
 COPY init.sh /init.sh
