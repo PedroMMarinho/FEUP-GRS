@@ -1,12 +1,13 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import logo from '../assets/logo.png';
 import Notification from './Notification';
 
-export default function Toolbar({ onExportJSON, onExportPNG, onImport, onLoadExample, isDarkMode, toggleTheme, theme, onRun, runConfigUrl }) {
+export default function Toolbar({ onExportJSON, onExportPNG, onImport, onLoadExample, isDarkMode, toggleTheme, theme, onRun, onStop, runConfigUrl }) {
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [hovered, setHovered] = useState(null);
   const [notification, setNotification] = useState(null);
-  const [isRunLoading, setIsRunLoading] = useState(false);
+  const [runPhase, setRunPhase] = useState('idle');
+  const runAbortControllerRef = useRef(null);
 
   // Fallback to prevent crashes if theme isn't fully loaded
   const currentTheme = theme || {
@@ -70,7 +71,7 @@ export default function Toolbar({ onExportJSON, onExportPNG, onImport, onLoadExa
         <div style={styles.dropdownContainer}>
           <button 
             onClick={() => setIsExportOpen(!isExportOpen)} 
-            style={{ ...styles.exportBtn, ...(hovered === 'export' ? styles.exportHover : {}) }}
+            style={{ ...styles.exampleBtn, ...(hovered === 'export' ? styles.buttonHover : {}) }}
             onMouseEnter={() => setHovered('export')}
             onMouseLeave={() => setHovered(null)}
           >
@@ -141,49 +142,111 @@ export default function Toolbar({ onExportJSON, onExportPNG, onImport, onLoadExa
           <div style={styles.toggleKnob} />
         </div>
 
-        <button
-          onClick={async () => {
-            if (isRunLoading) return;
-            setIsRunLoading(true);
-            try {
-              let res;
-              if (onRun) {
-                res = await onRun();
-              } else if (runConfigUrl) {
-                const r = await fetch(runConfigUrl, { method: 'POST' });
-                res = await r.json();
-              } else {
-                throw new Error('No run handler or URL provided');
-              }
+        <div style={styles.actionRow}>
+          <button
+            onClick={async () => {
+              if (runPhase !== 'idle') return;
+              setRunPhase('starting');
 
-              if (res && (res.success === false || res.error)) {
-                setNotification({ type: 'error', message: res.error || res.message || 'Run failed' });
-              } else {
-                setNotification({ type: 'success', message: res && (res.message || 'Ran correctly') || 'Ran correctly' });
+              const controller = new AbortController();
+              runAbortControllerRef.current = controller;
+
+              try {
+                let res;
+                if (onRun) {
+                  res = await onRun(controller.signal);
+                } else if (runConfigUrl) {
+                  const r = await fetch(runConfigUrl, { method: 'POST', signal: controller.signal });
+                  res = await r.json();
+                } else {
+                  throw new Error('No run handler or URL provided');
+                }
+
+                if (res?.aborted) {
+                  return;
+                }
+
+                if (res && (res.success === false || res.error)) {
+                  setNotification({ type: 'error', message: res.error || res.message || 'Run failed' });
+                  setRunPhase('idle');
+                } else {
+                  setNotification({ type: 'success', message: res && (res.message || 'Ran correctly') || 'Ran correctly' });
+                  setRunPhase('running');
+                }
+              } catch (err) {
+                if (err?.name === 'AbortError') {
+                  return;
+                }
+
+                setNotification({ type: 'error', message: err.message || 'Unknown error' });
+                setRunPhase('idle');
+              } finally {
+                runAbortControllerRef.current = null;
               }
-            } catch (err) {
-              setNotification({ type: 'error', message: err.message || 'Unknown error' });
-            } finally {
-              setIsRunLoading(false);
-            }
-          }}
-          style={{ ...styles.runBtn, ...(hovered === 'run' && !isRunLoading ? styles.buttonHover : {}), ...(isRunLoading ? styles.runBtnLoading : {}) }}
-          title="Generate configuration and run topology"
-          onMouseEnter={() => !isRunLoading && setHovered('run')}
-          onMouseLeave={() => setHovered(null)}
-          disabled={isRunLoading}
-        >
-          {isRunLoading ? (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, animation: 'spin 1s linear infinite' }}>
-              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeDasharray="15.7 47.1" />
-            </svg>
-          ) : (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0 }}>
-              <polygon points="5 3 19 12 5 21 5 3"></polygon>
-            </svg>
-          )}
-          <span>{isRunLoading ? 'Generating...' : 'Generate Config'}</span>
-        </button>
+            }}
+            style={{ ...styles.runBtn, ...((hovered === 'run' && runPhase === 'idle') ? styles.runHover : {}), ...(runPhase !== 'idle' ? styles.runBtnLoading : {}) }}
+            title="Generate configuration and run topology"
+            onMouseEnter={() => runPhase === 'idle' && setHovered('run')}
+            onMouseLeave={() => setHovered(null)}
+            disabled={runPhase !== 'idle'}
+          >
+            {runPhase === 'starting' || runPhase === 'running' ? (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, animation: 'spin 1s linear infinite' }}>
+                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeDasharray="15.7 47.1" />
+              </svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0 }}>
+                <polygon points="5 3 19 12 5 21 5 3"></polygon>
+              </svg>
+            )}
+            <span>{runPhase === 'starting' ? 'Starting...' : runPhase === 'running' ? 'Running...' : 'Generate'}</span>
+          </button>
+
+          <button
+            onClick={async () => {
+              if (runPhase === 'idle') return;
+
+              setRunPhase('stopping');
+              runAbortControllerRef.current?.abort();
+
+              try {
+                if (!onStop) {
+                  throw new Error('No stop handler provided');
+                }
+
+                const res = await onStop();
+
+                if (res && (res.success === false || res.error)) {
+                  setNotification({ type: 'error', message: res.error || res.message || 'Stop failed' });
+                } else {
+                  setNotification({ type: 'success', message: res?.message || 'Topology stopped' });
+                  setRunPhase('idle');
+                }
+              } catch (err) {
+                setNotification({ type: 'error', message: err.message || 'Unknown error' });
+                setRunPhase('running');
+              } finally {
+                runAbortControllerRef.current = null;
+              }
+            }}
+            style={{ ...styles.stopBtn, ...(hovered === 'stop' && runPhase !== 'idle' ? styles.stopHover : {}), ...(runPhase === 'idle' ? styles.stopBtnDisabled : {}) }}
+            title="Stop the running topology"
+            onMouseEnter={() => runPhase !== 'idle' && setHovered('stop')}
+            onMouseLeave={() => setHovered(null)}
+            disabled={runPhase === 'idle' || runPhase === 'stopping'}
+          >
+            {runPhase === 'stopping' ? (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, animation: 'spin 1s linear infinite' }}>
+                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeDasharray="15.7 47.1" />
+              </svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0 }}>
+                <path d="M6 6h12v12H6z" />
+              </svg>
+            )}
+            <span>{runPhase === 'stopping' ? 'Stopping...' : 'Stop'}</span>
+          </button>
+        </div>
       </div>
 
       {/* Notification container rendered at bottom-right */}
@@ -249,6 +312,13 @@ const getStyles = (theme, isDarkMode, isExportOpen) => ({
     alignItems: 'center',
     gap: 12,
   },
+  actionRow: {
+    display: 'flex',
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 8,
+    minWidth: 0,
+  },
   centerSection: {
     display: 'flex',
     alignItems: 'center',
@@ -277,10 +347,10 @@ const getStyles = (theme, isDarkMode, isExportOpen) => ({
     justifyContent: 'center',
     gap: 6,
     padding: '7px 14px',
-    background: 'transparent',
-    border: `1px solid ${theme.borderColor}`,
+    background: theme.accentMain,
+    border: 'none',
     borderRadius: 6,
-    color: theme.textMain,
+    color: theme.accentText,
     fontSize: 13,
     fontWeight: 700,
     lineHeight: 1,
@@ -288,17 +358,43 @@ const getStyles = (theme, isDarkMode, isExportOpen) => ({
     fontFamily: 'monospace',
     transition: 'opacity 0.2s ease, background 0.12s ease',
   },
+  runHover: {
+    background: theme.accentHover,
+  },
   runBtnLoading: {
     opacity: 0.6,
     cursor: 'not-allowed',
-    pointerEvents: 'none',
+  },
+  runBtnActive: {
+    boxShadow: '0 0 0 1px rgba(255,255,255,0.08) inset',
+  },
+  stopBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    padding: '7px 14px',
+    background: '#b42318',
+    border: 'none',
+    borderRadius: 6,
+    color: '#fff5f5',
+    fontSize: 12,
+    fontWeight: 700,
+    lineHeight: 1,
+    cursor: 'pointer',
+    fontFamily: 'monospace',
+    transition: 'opacity 0.2s ease, background 0.12s ease',
+  },
+  stopHover: {
+    background: '#912018',
+  },
+  stopBtnDisabled: {
+    opacity: 0.45,
+    cursor: 'not-allowed',
   },
   buttonHover: {
     background: theme.controlsBg,
     border: `1px solid ${theme.accentHover}`,
-  },
-  exportHover: {
-    filter: 'brightness(0.95)'
   },
   toggleTrack: {
     position: 'relative',
@@ -329,42 +425,8 @@ const getStyles = (theme, isDarkMode, isExportOpen) => ({
     transform: isDarkMode ? 'translateX(0px)' : 'translateX(26px)',
     transition: 'transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1), background 0.3s ease',
   },
-  importBtn: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    padding: '7px 14px',
-    background: 'transparent',
-    border: `1px solid ${theme.borderColor}`,
-    borderRadius: 6,
-    color: theme.textMain,
-    fontSize: 13,
-    fontWeight: 600,
-    lineHeight: 1,
-    cursor: 'pointer',
-    fontFamily: 'monospace',
-    transition: 'opacity 0.2s ease',
-  },
   dropdownContainer: {
     position: 'relative',
-  },
-  exportBtn: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    padding: '7px 14px',
-    background: theme.accentMain, // Terminal Green
-    border: 'none',
-    borderRadius: 6,
-    color: theme.accentText,
-    fontSize: 13,
-    fontWeight: 700,
-    lineHeight: 1,
-    cursor: 'pointer',
-    fontFamily: 'monospace',
-    transition: 'opacity 0.2s ease',
   },
   dropdownMenu: {
     position: 'absolute',

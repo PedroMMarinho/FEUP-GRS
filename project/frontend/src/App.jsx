@@ -418,13 +418,14 @@ export default function App() {
     }
   }, [reactFlowInstance, theme.canvasBg]);
 
-  const handleRun = useCallback(async () => {
+  const handleRun = useCallback(async (signal) => {
     const topology = buildTopology(nodes, edges);
     try {
       const res = await fetch('http://localhost:8000/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(topology),
+        signal,
       });
 
       if (!res.ok) {
@@ -449,9 +450,44 @@ export default function App() {
       const data = await res.json();
       return { success: true, message: data.message || 'Ran correctly' };
     } catch (err) {
+      if (err?.name === 'AbortError') {
+        return { success: false, aborted: true, message: 'Generation stopped' };
+      }
+
       return { success: false, error: err.message || 'Network error' };
     }
   }, [nodes, edges]);
+
+  const handleStop = useCallback(async () => {
+    try {
+      const res = await fetch('http://localhost:8000/stop', {
+        method: 'POST',
+      });
+
+      if (!res.ok) {
+        let detail = 'Stop failed';
+        try {
+          const err = await res.json();
+          if (err.detail) {
+            detail = typeof err.detail === 'string' ? err.detail : err.detail.message || JSON.stringify(err.detail);
+          } else if (err.message) {
+            detail = err.message;
+          } else {
+            detail = `${res.status} ${res.statusText}`;
+          }
+        } catch (e) {
+          detail = `${res.status} ${res.statusText}`;
+        }
+
+        return { success: false, error: detail };
+      }
+
+      const data = await res.json();
+      return { success: true, message: data.message || 'Topology stopped' };
+    } catch (err) {
+      return { success: false, error: err.message || 'Network error' };
+    }
+  }, []);
 
   const handleHostCommand = useCallback(async (host, command) => {
     const params = new URLSearchParams({ host, command });
@@ -868,6 +904,7 @@ export default function App() {
         toggleTheme={() => setIsDarkMode(!isDarkMode)}
         theme={theme}
         onRun={handleRun}
+        onStop={handleStop}
     />
 
       <div style={dynamicStyles.body}>
