@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-export default function HostTerminal({
+export default function Terminal({
   isOpen,
-  hostName,
-  hostId,
+  nodeName,
+  nodeId,
+  nodeType,
   initialPosition,
   zIndex = 2000,
   onClose,
@@ -20,7 +21,8 @@ export default function HostTerminal({
   const resizeState = useRef(null);
   const bodyRef = useRef(null);
 
-  const prompt = useMemo(() => `${hostName || hostId || 'host'}@netcompose:~$`, [hostName, hostId]);
+  const displayName = nodeName || nodeType || 'device';
+  const prompt = useMemo(() => `${displayName}@netcompose:~$`, [displayName]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -28,11 +30,11 @@ export default function HostTerminal({
     setHistory((prev) => {
       if (prev.length > 0) return prev;
       return [
-        { type: 'meta', text: `Connected to ${hostName || 'host'}` },
+        { type: 'meta', text: `Connected to ${displayName}` },
         { type: 'meta', text: 'Type a command and press Enter' },
       ];
     });
-  }, [isOpen, hostName]);
+  }, [isOpen, displayName]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -82,7 +84,7 @@ export default function HostTerminal({
     setHistory((prev) => [...prev, { type: 'command', text: `${prompt} ${normalizedCommand.display}` }]);
 
     try {
-      const output = await onExecuteCommand?.(hostId || hostName, normalizedCommand.command);
+      const output = await onExecuteCommand?.(nodeId || nodeName, normalizedCommand.command);
       if (output) {
         setHistory((prev) => [...prev, { type: 'output', text: output }]);
       } else {
@@ -116,7 +118,7 @@ export default function HostTerminal({
           <span style={styles.dotRed} />
           <span style={styles.dotYellow} />
           <span style={styles.dotGreen} />
-          <span style={styles.title}>{hostName || 'host'} terminal</span>
+          <span style={styles.title}>{displayName} terminal</span>
         </div>
         <button style={styles.closeBtn} onClick={onClose}>Close</button>
       </div>

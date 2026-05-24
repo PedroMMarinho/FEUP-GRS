@@ -15,7 +15,7 @@ import RouterNode from './nodes/RouterNode';
 import Toolbar from './components/Toolbar';
 import ConfigSidebar from './components/ConfigSidebar';
 import DeviceSidebar from './components/DeviceSidebar';
-import HostTerminal from './components/HostTerminal';
+import Terminal from './components/Terminal';
 import { EXAMPLE_NODES, EXAMPLE_EDGES } from './utils/exampleTopology';
 import { buildTopology, downloadJSON, downloadPNG, importTopology } from './utils/export';
 
@@ -405,7 +405,7 @@ export default function App() {
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
   const [selectedNodeId, setSelectedNodeId] = useState(null);
-  const [hostTerminals, setHostTerminals] = useState([]);
+  const [terminals, setTerminals] = useState([]);
   
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
   const [draggedDevice, setDraggedDevice] = useState(null);
@@ -499,7 +499,7 @@ export default function App() {
     }
   }, []);
 
-  const handleHostCommand = useCallback(async (host, command) => {
+  const handleNodeCommand = useCallback(async (host, command) => {
     const params = new URLSearchParams({ host, command });
     const res = await fetch(`http://localhost:8000/command?${params.toString()}`);
 
@@ -511,20 +511,21 @@ export default function App() {
     return text;
   }, []);
 
-  const handleOpenHostTerminal = useCallback((hostNode) => {
-    if (!hostNode) return;
+  const handleOpenTerminal = useCallback((node) => {
+    if (!node) return;
 
-    const terminalId = `${hostNode.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const count = hostTerminals.length;
+    const terminalId = `${node.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const count = terminals.length;
     const offset = count * 26;
 
-    setHostTerminals((current) => current.concat({
+    setTerminals((current) => current.concat({
       id: terminalId,
-      hostId: hostNode.id,
-      hostName: hostNode.data?.config?.hostname || hostNode.id,
+      nodeId: node.id,
+      nodeName: node.data?.config?.hostname || node.id,
+      nodeType: node.data?.type || 'device',
       position: { x: 280 + offset, y: 110 + offset },
     }));
-  }, [hostTerminals.length]);
+  }, [terminals.length]);
 
   function formatCommandError(responseText, status) {
     if (!responseText) {
@@ -555,8 +556,8 @@ export default function App() {
     return responseText.trim() || `Command failed (${status})`;
   }
 
-  const handleCloseHostTerminal = useCallback((terminalId) => {
-    setHostTerminals((current) => current.filter((terminal) => terminal.id !== terminalId));
+  const handleCloseTerminal = useCallback((terminalId) => {
+    setTerminals((current) => current.filter((terminal) => terminal.id !== terminalId));
   }, []);
 
   const startResizing = React.useCallback(() => setIsDragging(true), []);
@@ -791,7 +792,7 @@ export default function App() {
     setEdges([]);
     setSelectedNodeId(null);
     setDraggedDevice(null);
-    setHostTerminals([]);
+    setTerminals([]);
   }, [nodes.length, edges.length]);
 
   const handleLoadExample = useCallback(() => {
@@ -1036,22 +1037,22 @@ export default function App() {
             edges={edges}
             isDarkMode={isDarkMode} 
             theme={theme}
-            onHostCommand={handleHostCommand}
-            onOpenHostTerminal={handleOpenHostTerminal}
+            onOpenTerminal={handleOpenTerminal}
           />
         </div>
       </div>
 
-      {hostTerminals.map((terminal, index) => (
-        <HostTerminal
+      {terminals.map((terminal, index) => (
+        <Terminal
           key={terminal.id}
           isOpen
-          hostName={terminal.hostName}
-          hostId={terminal.hostId}
+          nodeName={terminal.nodeName}
+          nodeId={terminal.nodeId}
+          nodeType={terminal.nodeType}
           initialPosition={terminal.position}
           zIndex={2000 + index}
-          onClose={() => handleCloseHostTerminal(terminal.id)}
-          onExecuteCommand={handleHostCommand}
+          onClose={() => handleCloseTerminal(terminal.id)}
+          onExecuteCommand={handleNodeCommand}
           theme={theme}
         />
       ))}

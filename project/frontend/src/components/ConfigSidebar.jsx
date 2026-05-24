@@ -1,7 +1,7 @@
 import React from 'react';
 import { DEVICE_MAP } from '../devices';
  
-export default function ConfigSidebar({ selectedNode, onConfigChange, onDelete, isDarkMode, theme, nodes, edges, onNetworkConfigChange, onOpenHostTerminal }) {
+export default function ConfigSidebar({ selectedNode, onConfigChange, onDelete, isDarkMode, theme, nodes, edges, onNetworkConfigChange, onOpenTerminal }) {
   const styles = getStyles(theme, isDarkMode);
  
   if (!selectedNode) {
@@ -17,7 +17,7 @@ export default function ConfigSidebar({ selectedNode, onConfigChange, onDelete, 
   const config = selectedNode.data.config || {};
   const isRouter = selectedNode.data.type === 'router';
   const isHost = selectedNode.data.type === 'host';
-  const hostDisplayName = config.hostname || selectedNode.id;
+  const supportsTerminal = isHost || isRouter;
  
   // If this device lives inside a NetworkNode, grab the network's subnet info
   const parentNetwork = selectedNode.parentNode
@@ -79,11 +79,11 @@ export default function ConfigSidebar({ selectedNode, onConfigChange, onDelete, 
             <div style={styles.nodeId}>{selectedNode.id}</div>
           </div>
         </div>
-        {isHost && (
+        {supportsTerminal && (
           <button
             style={styles.terminalBtn}
-            onClick={() => onOpenHostTerminal?.(selectedNode)}
-            title="Open host terminal"
+            onClick={() => onOpenTerminal?.(selectedNode)}
+            title="Open terminal"
           >
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="4 17 10 11 4 5" />
