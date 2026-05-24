@@ -15,6 +15,7 @@ import RouterNode from './nodes/RouterNode';
 import Toolbar from './components/Toolbar';
 import ConfigSidebar from './components/ConfigSidebar';
 import DeviceSidebar from './components/DeviceSidebar';
+import Terminal from './components/Terminal';
 import { EXAMPLE_NODES, EXAMPLE_EDGES } from './utils/exampleTopology';
 import { buildTopology, downloadJSON, downloadPNG, importTopology } from './utils/export';
 
@@ -62,6 +63,9 @@ const themes = {
     accentHover: '#15803d',
   }
 };
+
+const DEFAULT_OSPF_AREA = '0.0.0.0';
+const DEFAULT_OSPF_COST = '1';
 
 const HOSTNAME_PREFIX = {
   host: 'host',
@@ -215,6 +219,7 @@ function createDefaultConfig(type, nodes, parentNetworkId = null) {
   if (type === 'router') {
     return {
       hostname: nextHostname('router', nodes),
+      ospf_enabled: false,
       interfaces: {},
     };
   }
@@ -314,6 +319,8 @@ function buildLanRouterInterface(nodes, peerNode) {
     ip: netCfg.gateway || addIpv4(netCfg.subnet, 250),
     subnet: netCfg.subnet,
     mask: String(netCfg.mask),
+    ospf_area: DEFAULT_OSPF_AREA,
+    ospf_cost: DEFAULT_OSPF_COST,
   };
 }
 
@@ -359,12 +366,16 @@ function applyRouterInterfacesForConnection(nodes, params) {
         ip: transit.sourceIp,
         subnet: transit.subnet,
         mask: transit.mask,
+        ospf_area: DEFAULT_OSPF_AREA,
+        ospf_cost: DEFAULT_OSPF_COST,
       });
 
       setRouterInterface(targetNode, sourceNode, {
         ip: transit.targetIp,
         subnet: transit.subnet,
         mask: transit.mask,
+        ospf_area: DEFAULT_OSPF_AREA,
+        ospf_cost: DEFAULT_OSPF_COST,
       });
     }
 
@@ -394,6 +405,7 @@ export default function App() {
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
   const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const [terminals, setTerminals] = useState([]);
   
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
   const [draggedDevice, setDraggedDevice] = useState(null);
@@ -415,6 +427,138 @@ export default function App() {
       downloadPNG(reactFlowInstance, theme.canvasBg);
     }
   }, [reactFlowInstance, theme.canvasBg]);
+
+  const handleRun = useCallback(async (signal) => {
+    const topology = buildTopology(nodes, edges);
+    try {
+      const res = await fetch('http://localhost:8000/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(topology),
+        signal,
+      });
+
+      if (!res.ok) {
+        // Attempt to parse error detail from backend
+        let detail = 'Run failed';
+        try {
+          const err = await res.json();
+          if (err.detail) {
+            // Backend returns {detail: {...}} or {detail: string}
+            detail = typeof err.detail === 'string' ? err.detail : err.detail.message || JSON.stringify(err.detail);
+          } else if (err.message) {
+            detail = err.message;
+          } else {
+            detail = `${res.status} ${res.statusText}`;
+          }
+        } catch (e) {
+          detail = `${res.status} ${res.statusText}`;
+        }
+        return { success: false, error: detail };
+      }
+
+      const data = await res.json();
+      return { success: true, message: data.message || 'Ran correctly' };
+    } catch (err) {
+      if (err?.name === 'AbortError') {
+        return { success: false, aborted: true, message: 'Generation stopped' };
+      }
+
+      return { success: false, error: err.message || 'Network error' };
+    }
+  }, [nodes, edges]);
+
+  const handleStop = useCallback(async () => {
+    try {
+      const res = await fetch('http://localhost:8000/stop', {
+        method: 'POST',
+      });
+
+      if (!res.ok) {
+        let detail = 'Stop failed';
+        try {
+          const err = await res.json();
+          if (err.detail) {
+            detail = typeof err.detail === 'string' ? err.detail : err.detail.message || JSON.stringify(err.detail);
+          } else if (err.message) {
+            detail = err.message;
+          } else {
+            detail = `${res.status} ${res.statusText}`;
+          }
+        } catch (e) {
+          detail = `${res.status} ${res.statusText}`;
+        }
+
+        return { success: false, error: detail };
+      }
+
+      const data = await res.json();
+      return { success: true, message: data.message || 'Topology stopped' };
+    } catch (err) {
+      return { success: false, error: err.message || 'Network error' };
+    }
+  }, []);
+
+  const handleNodeCommand = useCallback(async (host, command) => {
+    const params = new URLSearchParams({ host, command });
+    const res = await fetch(`http://localhost:8000/command?${params.toString()}`);
+
+    const text = await res.text();
+    if (!res.ok) {
+      throw new Error(formatCommandError(text, res.status));
+    }
+
+    return text;
+  }, []);
+
+  const handleOpenTerminal = useCallback((node) => {
+    if (!node) return;
+
+    const terminalId = `${node.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const count = terminals.length;
+    const offset = count * 26;
+
+    setTerminals((current) => current.concat({
+      id: terminalId,
+      nodeId: node.id,
+      nodeName: node.data?.config?.hostname || node.id,
+      nodeType: node.data?.type || 'device',
+      position: { x: 280 + offset, y: 110 + offset },
+    }));
+  }, [terminals.length]);
+
+  function formatCommandError(responseText, status) {
+    if (!responseText) {
+      return `Command failed (${status})`;
+    }
+
+    try {
+      const payload = JSON.parse(responseText);
+      const detail = payload?.detail;
+
+      if (typeof detail === 'string') {
+        return detail.trim() || `Command failed (${status})`;
+      }
+
+      if (detail && typeof detail === 'object') {
+        const parts = [];
+        if (detail.message) parts.push(detail.message);
+        if (detail.stdout) parts.push(detail.stdout.trim());
+        if (detail.stderr) parts.push(detail.stderr.trim());
+
+        const formatted = parts.filter(Boolean).join('\n');
+        return formatted || `Command failed (${status})`;
+      }
+    } catch (error) {
+      // Not JSON, fall through to raw text.
+    }
+
+    return responseText.trim() || `Command failed (${status})`;
+  }
+
+  const handleCloseTerminal = useCallback((terminalId) => {
+    setTerminals((current) => current.filter((terminal) => terminal.id !== terminalId));
+  }, []);
 
   const startResizing = React.useCallback(() => setIsDragging(true), []);
   const stopResizing = React.useCallback(() => setIsDragging(false), []);
@@ -630,6 +774,27 @@ export default function App() {
     }
   }, [reactFlowInstance, selectedNodeId]);
 
+  const handleClearCanvas = useCallback(() => {
+    const hasContent = nodes.length > 0 || edges.length > 0;
+
+    if (!hasContent) {
+      setSelectedNodeId(null);
+      return;
+    }
+
+    const shouldDelete = window.confirm('Delete everything on the canvas? This cannot be undone.');
+
+    if (!shouldDelete) {
+      return;
+    }
+
+    setNodes([]);
+    setEdges([]);
+    setSelectedNodeId(null);
+    setDraggedDevice(null);
+    setTerminals([]);
+  }, [nodes.length, edges.length]);
+
   const handleLoadExample = useCallback(() => {
     setNodes(EXAMPLE_NODES);
     setEdges(EXAMPLE_EDGES);
@@ -770,6 +935,8 @@ export default function App() {
         isDarkMode={isDarkMode}
         toggleTheme={() => setIsDarkMode(!isDarkMode)}
         theme={theme}
+        onRun={handleRun}
+        onStop={handleStop}
     />
 
       <div style={dynamicStyles.body}>
@@ -778,10 +945,12 @@ export default function App() {
         <div style={dynamicStyles.leftSidebar}>
           {/* Removed minWidth so it safely shrinks to 0 without spilling out */}
           <div style={{ width: '100%', flexShrink: 0, height: '100%', overflow: 'hidden' }}>
-            <DeviceSidebar onAdd={handleAdd}
-            theme={theme}
-            isDarkMode={isDarkMode}
-            setDraggedDevice={setDraggedDevice} 
+            <DeviceSidebar
+              onAdd={handleAdd}
+              onClearCanvas={handleClearCanvas}
+              theme={theme}
+              isDarkMode={isDarkMode}
+              setDraggedDevice={setDraggedDevice}
             />
           </div>
           
@@ -868,9 +1037,25 @@ export default function App() {
             edges={edges}
             isDarkMode={isDarkMode} 
             theme={theme}
+            onOpenTerminal={handleOpenTerminal}
           />
         </div>
       </div>
+
+      {terminals.map((terminal, index) => (
+        <Terminal
+          key={terminal.id}
+          isOpen
+          nodeName={terminal.nodeName}
+          nodeId={terminal.nodeId}
+          nodeType={terminal.nodeType}
+          initialPosition={terminal.position}
+          zIndex={2000 + index}
+          onClose={() => handleCloseTerminal(terminal.id)}
+          onExecuteCommand={handleNodeCommand}
+          theme={theme}
+        />
+      ))}
     </div>
   );
 }

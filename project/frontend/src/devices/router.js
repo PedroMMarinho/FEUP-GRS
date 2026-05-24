@@ -26,20 +26,6 @@ const router = {
       type: 'checkbox',
     },
     {
-      key: 'ospf_area',
-      label: 'OSPF Area',
-      type: 'text',
-      placeholder: '0.0.0.0',
-      dependsOn: { key: 'ospf_enabled', value: true },
-    },
-    {
-      key: 'ospf_cost',
-      label: 'OSPF Cost',
-      type: 'text',
-      placeholder: '1',
-      dependsOn: { key: 'ospf_enabled', value: true },
-    },
-    {
       key: 'nat_enabled',
       label: 'Enable NAT',
       type: 'checkbox',

@@ -1,7 +1,7 @@
 import React from 'react';
 import { DEVICE_MAP } from '../devices';
  
-export default function ConfigSidebar({ selectedNode, onConfigChange, onDelete, isDarkMode, theme, nodes, edges, onNetworkConfigChange }) {
+export default function ConfigSidebar({ selectedNode, onConfigChange, onDelete, isDarkMode, theme, nodes, edges, onNetworkConfigChange, onOpenTerminal }) {
   const styles = getStyles(theme, isDarkMode);
  
   if (!selectedNode) {
@@ -16,6 +16,8 @@ export default function ConfigSidebar({ selectedNode, onConfigChange, onDelete, 
   const def = DEVICE_MAP[selectedNode.data.type];
   const config = selectedNode.data.config || {};
   const isRouter = selectedNode.data.type === 'router';
+  const isHost = selectedNode.data.type === 'host';
+  const supportsTerminal = isHost || isRouter;
  
   // If this device lives inside a NetworkNode, grab the network's subnet info
   const parentNetwork = selectedNode.parentNode
@@ -66,14 +68,30 @@ export default function ConfigSidebar({ selectedNode, onConfigChange, onDelete, 
   };
  
   return (
+    <>
     <div style={styles.panel}>
       {/* Header */}
       <div style={styles.header}>
-        <div style={styles.iconBadge} dangerouslySetInnerHTML={{ __html: def.icon }} />
-        <div>
-          <div style={styles.deviceType}>{def.label}</div>
-          <div style={styles.nodeId}>{selectedNode.id}</div>
+        <div style={styles.headerMain}>
+          <div style={styles.iconBadge} dangerouslySetInnerHTML={{ __html: def.icon }} />
+          <div>
+            <div style={styles.deviceType}>{def.label}</div>
+            <div style={styles.nodeId}>{selectedNode.id}</div>
+          </div>
         </div>
+        {supportsTerminal && (
+          <button
+            style={styles.terminalBtn}
+            onClick={() => onOpenTerminal?.(selectedNode)}
+            title="Open terminal"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="4 17 10 11 4 5" />
+              <line x1="12" y1="19" x2="20" y2="19" />
+            </svg>
+            <span>Terminal</span>
+          </button>
+        )}
       </div>
  
       <div style={styles.divider} />
@@ -151,6 +169,31 @@ export default function ConfigSidebar({ selectedNode, onConfigChange, onDelete, 
                         style={styles.input}
                       />
                     </div>
+                    {config.ospf_enabled && (
+                      <>
+                        <div style={styles.fieldGroup}>
+                          <label style={styles.label}>OSPF Area</label>
+                          <input
+                            type="text"
+                            value={ifaceConfig.ospf_area || '0.0.0.0'}
+                            placeholder="0.0.0.0"
+                            onChange={(e) => handleIfaceChange(node.id, 'ospf_area', e.target.value)}
+                            style={styles.input}
+                          />
+                        </div>
+
+                        <div style={styles.fieldGroup}>
+                          <label style={styles.label}>OSPF Cost</label>
+                          <input
+                            type="text"
+                            value={ifaceConfig.ospf_cost || '1'}
+                            placeholder="1"
+                            onChange={(e) => handleIfaceChange(node.id, 'ospf_cost', e.target.value)}
+                            style={styles.input}
+                          />
+                        </div>
+                      </>
+                    )}
                   </div>
                 );
               })}
@@ -162,6 +205,7 @@ export default function ConfigSidebar({ selectedNode, onConfigChange, onDelete, 
       <div style={styles.divider} />
       <button onClick={onDelete} style={styles.deleteBtn}>Delete Node</button>
     </div>
+    </>
   );
 }
  
@@ -302,8 +346,14 @@ const getStyles = (theme, isDarkMode) => ({
   header: {
     display: 'flex',
     alignItems: 'center',
-    gap: 12,
+    justifyContent: 'space-between',
     padding: '16px 20px',
+  },
+  headerMain: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    minWidth: 0,
   },
   iconBadge: {
     width: 40,
@@ -384,6 +434,21 @@ const getStyles = (theme, isDarkMode) => ({
     cursor: 'pointer',
     fontFamily: 'monospace',
     transition: 'all 0.15s',
+  },
+  terminalBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    height: 28,
+    padding: '0 10px',
+    border: `1px solid ${theme.borderColor}`,
+    borderRadius: 6,
+    background: theme.controlsBg,
+    color: theme.textMain,
+    fontSize: 12,
+    fontFamily: 'monospace',
+    cursor: 'pointer',
+    flexShrink: 0,
   },
   sectionLabel: { fontSize: 12, color: theme.textMuted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', padding: '10px 20px 0' },
   interfaceBlock: { display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 12px', background: theme.canvasBg, borderRadius: 8, border: '1px solid #1e2438' },

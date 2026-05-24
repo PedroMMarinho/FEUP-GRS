@@ -1,12 +1,13 @@
 import React, { useState, useRef } from 'react';
 import DEVICES from '../devices';
 
-export default function DeviceSidebar({ onAdd, theme, isDarkMode, setDraggedDevice }) {
+export default function DeviceSidebar({ onAdd, onClearCanvas, theme, isDarkMode, setDraggedDevice }) {
   const [isGeneralOpen, setIsGeneralOpen] = useState(true);
 
   // --- ADDED A REF TO MEASURE THE SIDEBAR ---
   const sidebarRef = useRef(null);
   const [hoverState, setHoverState] = useState({ def: null, top: 0, left: 0 });
+  const [isClearHovered, setIsClearHovered] = useState(false);
 
   const handleMouseEnter = (e, def) => {
     // 1. Get the button's Y-position (so we can center it vertically)
@@ -70,6 +71,10 @@ export default function DeviceSidebar({ onAdd, theme, isDarkMode, setDraggedDevi
       gap: 10,
       padding: '16px 12px 16px 24px',
     },
+    footer: {
+      marginTop: 'auto',
+      padding: '0 12px 12px 12px',
+    },
     deviceBtn: (isHovered) => ({
       display: 'flex',
       flexDirection: 'column',
@@ -107,7 +112,25 @@ export default function DeviceSidebar({ onAdd, theme, isDarkMode, setDraggedDevi
       fontWeight: 600,
       color: theme.textMain,
       fontFamily: "'DM Mono', monospace",
-    }
+    },
+    clearCanvasBtn: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      width: '100%',
+      gap: 8,
+      padding: '10px 12px',
+      border: 'none',
+      borderRadius: 8,
+      cursor: 'pointer',
+      background: '#b42318',
+      color: '#fff5f5',
+      fontSize: 12,
+      fontWeight: 700,
+      fontFamily: "'DM Mono', monospace",
+      transition: 'background 0.15s ease, transform 0.15s ease',
+      boxShadow: '0 8px 20px rgba(180, 35, 24, 0.18)',
+    },
   };
 
   return (
@@ -148,6 +171,29 @@ export default function DeviceSidebar({ onAdd, theme, isDarkMode, setDraggedDevi
 
           );
         })}
+      </div>
+
+      <div style={styles.footer}>
+        <button
+          type="button"
+          onClick={onClearCanvas}
+          style={{
+            ...styles.clearCanvasBtn,
+            ...(isClearHovered ? { background: '#912018' } : {}),
+          }}
+          onMouseEnter={() => setIsClearHovered(true)}
+          onMouseLeave={() => setIsClearHovered(false)}
+          title="Delete all nodes and edges from the canvas"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M3 6h18" />
+            <path d="M8 6V4h8v2" />
+            <path d="M6 6l1 14h10l1-14" />
+            <path d="M10 11v6" />
+            <path d="M14 11v6" />
+          </svg>
+          Delete Canvas
+        </button>
       </div>
 
       {hoverState.def && (
