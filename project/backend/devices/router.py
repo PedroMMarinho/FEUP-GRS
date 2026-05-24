@@ -40,25 +40,11 @@ def _router_id_from_device_id(device_id: str) -> str:
 def _build_ospf_config(device: dict[str, Any]) -> str:
     config = device.get("config") or {}
     hostname = config.get("hostname") or device["id"]
-    area = str(config.get("ospf_area") or "0.0.0.0")
     router_id = str(config.get("ospf_router_id") or _router_id_from_device_id(device["id"]))
 
-    networks: list[str] = []
-
-    for attachment in device.get("_attachments", []):
-        network_id = attachment.get("network_id")
-        ip = attachment.get("ip")
-
-        if not ip:
-            continue
-
-        # The generator already validates the attachment.
-        # The normalized object gives us every Docker network.
-        # But router.py does not receive network details directly in render,
-        # so use the interface configs instead below.
-        pass
-
     interfaces = config.get("interfaces") or {}
+
+    network_entries: list[tuple[str, str]] = []
 
     for iface in interfaces.values():
         subnet = iface.get("subnet")
@@ -70,28 +56,54 @@ def _build_ospf_config(device: dict[str, Any]) -> str:
         network = ipaddress.ip_network(f"{subnet}/{mask}", strict=False)
         cidr = str(network)
 
-        if cidr not in networks:
-            networks.append(cidr)
+        area = str(iface.get("ospf_area") or "0.0.0.0")
+
+        entry = (cidr, area)
+        if entry not in network_entries:
+            network_entries.append(entry)
 
     network_lines = "\n".join(
         f" network {network} area {area}"
-        for network in networks
+        for network, area in network_entries
     )
 
-    return f"""frr defaults traditional
-hostname {hostname}
-log stdout
-service integrated-vtysh-config
-ip forwarding
-!
-router ospf
- ospf router-id {router_id}
- log-adjacency-changes detail
-{network_lines}
-!
-line vty
-!
-"""
+    interface_blocks: list[str] = []
+
+    # Docker assigns eth0, eth1, eth2... according to the compose network
+    # attachment order. compose_network_attachments() preserves _attachments order.
+    for index, attachment in enumerate(device.get("_attachments", [])):
+        peer_id = attachment.get("peer_id")
+        iface = interfaces.get(peer_id) or {}
+
+        cost = iface.get("ospf_cost")
+
+        if not cost:
+            continue
+
+        interface_blocks.append(
+            f"""!
+                interface eth{index}
+                ip ospf cost {cost}
+            """
+        )
+
+    interface_config = "\n".join(interface_blocks)
+
+    return f""" frr defaults traditional
+                hostname {hostname}
+                log stdout
+                service integrated-vtysh-config
+                ip forwarding
+                !
+                router ospf
+                ospf router-id {router_id}
+                log-adjacency-changes detail
+                {network_lines}
+                {interface_config}
+                !
+                line vty
+                !
+            """
 
 
 def render_router_context(device: dict[str, Any]) -> None:

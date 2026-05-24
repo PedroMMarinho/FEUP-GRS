@@ -169,6 +169,31 @@ export default function ConfigSidebar({ selectedNode, onConfigChange, onDelete, 
                         style={styles.input}
                       />
                     </div>
+                    {config.ospf_enabled && (
+                      <>
+                        <div style={styles.fieldGroup}>
+                          <label style={styles.label}>OSPF Area</label>
+                          <input
+                            type="text"
+                            value={ifaceConfig.ospf_area || '0.0.0.0'}
+                            placeholder="0.0.0.0"
+                            onChange={(e) => handleIfaceChange(node.id, 'ospf_area', e.target.value)}
+                            style={styles.input}
+                          />
+                        </div>
+
+                        <div style={styles.fieldGroup}>
+                          <label style={styles.label}>OSPF Cost</label>
+                          <input
+                            type="text"
+                            value={ifaceConfig.ospf_cost || '1'}
+                            placeholder="1"
+                            onChange={(e) => handleIfaceChange(node.id, 'ospf_cost', e.target.value)}
+                            style={styles.input}
+                          />
+                        </div>
+                      </>
+                    )}
                   </div>
                 );
               })}

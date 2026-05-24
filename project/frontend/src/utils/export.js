@@ -59,10 +59,18 @@ export function buildTopology(nodes, edges) {
 
         const cleanedInterfaces = {};
 
+        const ospfEnabled = Boolean(baseConfig.ospf_enabled);
+
         Object.entries(existingInterfaces).forEach(([connectedId, iface]) => {
-          if (connectedNodeIds.has(connectedId)) {
-            cleanedInterfaces[connectedId] = iface;
-          }
+          if (!connectedNodeIds.has(connectedId)) return;
+
+          cleanedInterfaces[connectedId] = ospfEnabled
+            ? {
+                ...iface,
+                ospf_area: iface.ospf_area || '0.0.0.0',
+                ospf_cost: iface.ospf_cost || '1',
+              }
+            : { ...iface };
         });
 
         baseConfig.interfaces = cleanedInterfaces;

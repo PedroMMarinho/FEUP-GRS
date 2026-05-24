@@ -64,6 +64,9 @@ const themes = {
   }
 };
 
+const DEFAULT_OSPF_AREA = '0.0.0.0';
+const DEFAULT_OSPF_COST = '1';
+
 const HOSTNAME_PREFIX = {
   host: 'host',
   switch: 'sw',
@@ -216,6 +219,7 @@ function createDefaultConfig(type, nodes, parentNetworkId = null) {
   if (type === 'router') {
     return {
       hostname: nextHostname('router', nodes),
+      ospf_enabled: false,
       interfaces: {},
     };
   }
@@ -315,6 +319,8 @@ function buildLanRouterInterface(nodes, peerNode) {
     ip: netCfg.gateway || addIpv4(netCfg.subnet, 250),
     subnet: netCfg.subnet,
     mask: String(netCfg.mask),
+    ospf_area: DEFAULT_OSPF_AREA,
+    ospf_cost: DEFAULT_OSPF_COST,
   };
 }
 
@@ -360,12 +366,16 @@ function applyRouterInterfacesForConnection(nodes, params) {
         ip: transit.sourceIp,
         subnet: transit.subnet,
         mask: transit.mask,
+        ospf_area: DEFAULT_OSPF_AREA,
+        ospf_cost: DEFAULT_OSPF_COST,
       });
 
       setRouterInterface(targetNode, sourceNode, {
         ip: transit.targetIp,
         subnet: transit.subnet,
         mask: transit.mask,
+        ospf_area: DEFAULT_OSPF_AREA,
+        ospf_cost: DEFAULT_OSPF_COST,
       });
     }
 
