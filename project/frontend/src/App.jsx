@@ -16,7 +16,7 @@ import Toolbar from './components/Toolbar';
 import ConfigSidebar from './components/ConfigSidebar';
 import DeviceSidebar from './components/DeviceSidebar';
 import Terminal from './components/Terminal';
-import { EXAMPLE_NODES, EXAMPLE_EDGES } from './utils/exampleTopology';
+import ospfWithLoadBalancer from './utils/ospf_with_load_balancer.json';
 import { buildTopology, downloadJSON, downloadPNG, importTopology } from './utils/export';
 
 // Register custom node types once
@@ -905,9 +905,17 @@ export default function App() {
   }, [nodes.length, edges.length]);
 
   const handleLoadExample = useCallback(() => {
-    setNodes(EXAMPLE_NODES);
-    setEdges(EXAMPLE_EDGES);
-    setSelectedNodeId(null);
+    try {
+      const { nodes: importedNodes, edges: importedEdges } = importTopology(ospfWithLoadBalancer);
+
+      setNodes(importedNodes);
+      setEdges(importedEdges);
+      setSelectedNodeId(null);
+      setTerminals([]);
+    } catch (error) {
+      console.error('Failed to load example topology:', error);
+      alert('Failed to load example topology.');
+    }
   }, []);
 
   const handleImport = useCallback((e) => {

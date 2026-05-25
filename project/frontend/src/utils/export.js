@@ -2,6 +2,29 @@
 import { toPng } from 'html-to-image';
 import { getRectOfNodes, getTransformForBounds } from 'reactflow';
 
+function buildLayout(nodes) {
+  return {
+    nodes: Object.fromEntries(
+      nodes
+        .filter((node) => node.id !== 'ghost-node')
+        .map((node) => [
+          node.id,
+          {
+            position: node.position,
+            ...(node.parentNode && { parentNode: node.parentNode }),
+            ...(node.extent && { extent: node.extent }),
+            ...(node.style && {
+              style: {
+                width: node.style.width,
+                height: node.style.height,
+              },
+            }),
+          },
+        ])
+    ),
+  };
+}
+
 export function buildTopology(nodes, edges) {
   const networkNodes = nodes.filter((n) => n.type === 'networkNode');
   const deviceNodes  = nodes.filter((n) => n.type !== 'networkNode');
@@ -29,6 +52,7 @@ export function buildTopology(nodes, edges) {
   const topology = {
     version: '1.0',
     timestamp: new Date().toISOString(),
+    layout: buildLayout(nodes),
     networks: networkNodes.map((net) => ({
       id: net.id,
       config: net.data?.config || {},
@@ -118,74 +142,109 @@ export function buildTopology(nodes, edges) {
 export function importTopology(topology) {
   const nodes = [];
   const edges = [];
- 
-  const NET_WIDTH  = 300;
+
+  const NET_WIDTH = 300;
   const NET_HEIGHT = 220;
-  const NET_GAP    = 80;
- 
+  const NET_GAP = 80;
+
+  const savedLayout = topology.layout?.nodes || {};
+
   topology.networks.forEach((net, i) => {
+    const layout = savedLayout[net.id] || {};
+
     nodes.push({
-      id:   net.id,
+      id: net.id,
       type: 'networkNode',
-      position: { x: i * (NET_WIDTH + NET_GAP) + 60, y: 80 },
-      style: { width: NET_WIDTH, height: NET_HEIGHT },
+      position: layout.position || { x: i * (NET_WIDTH + NET_GAP) + 60, y: 80 },
+      style: layout.style || { width: NET_WIDTH, height: NET_HEIGHT },
       data: { type: 'network', config: net.config || {} },
     });
   });
- 
+
   const networkPositions = {};
-  nodes.forEach((n) => { if (n.type === 'networkNode') networkPositions[n.id] = n.position; });
- 
+  nodes.forEach((n) => {
+    if (n.type === 'networkNode') networkPositions[n.id] = n.position;
+  });
+
   const childCounters = {};
- 
+
   topology.devices.forEach((device) => {
     const isRouter = device.type === 'router';
-    const netIds   = device.networks || [];
- 
+    const netIds = device.networks || [];
+    const layout = savedLayout[device.id] || {};
+
     if (isRouter) {
       const connectedPositions = netIds.map((id) => networkPositions[id]).filter(Boolean);
-      let x = 200, y = 380;
+
+      let x = 200;
+      let y = 380;
+
       if (connectedPositions.length > 0) {
-        x = connectedPositions.reduce((sum, p) => sum + p.x, 0) / connectedPositions.length + NET_WIDTH / 2 - 80;
+        x =
+          connectedPositions.reduce((sum, p) => sum + p.x, 0) /
+            connectedPositions.length +
+          NET_WIDTH / 2 -
+          80;
         y = NET_HEIGHT + 160;
       }
+
       nodes.push({
-        id:   device.id,
+        id: device.id,
         type: 'routerNode',
-        position: { x, y },
-        style: { width: 160, height: 120 },
+        position: layout.position || { x, y },
+        style: layout.style || { width: 160, height: 120 },
         data: { type: 'router', config: device.config || {} },
       });
+
+      return;
+    }
+
+    const parentId = layout.parentNode || netIds[0];
+
+    if (parentId && networkPositions[parentId] !== undefined) {
+      const idx = childCounters[parentId] ?? 0;
+      childCounters[parentId] = idx + 1;
+
+      nodes.push({
+        id: device.id,
+        type: 'deviceNode',
+        parentNode: parentId,
+        extent: layout.extent || 'parent',
+        position:
+          layout.position || {
+            x: 20 + (idx % 2) * 130,
+            y: 50 + Math.floor(idx / 2) * 70,
+          },
+        ...(layout.style && { style: layout.style }),
+        data: { type: device.type, config: device.config || {} },
+      });
     } else {
-      const parentId = netIds[0];
-      if (parentId && networkPositions[parentId] !== undefined) {
-        const idx = childCounters[parentId] ?? 0;
-        childCounters[parentId] = idx + 1;
-        nodes.push({
-          id: device.id, type: 'deviceNode',
-          parentNode: parentId, extent: 'parent',
-          position: { x: 20 + (idx % 2) * 130, y: 50 + Math.floor(idx / 2) * 70 },
-          data: { type: device.type, config: device.config || {} },
-        });
-      } else {
-        nodes.push({
-          id: device.id, type: 'deviceNode',
-          position: { x: 100 + Math.random() * 200, y: 400 },
-          data: { type: device.type, config: device.config || {} },
-        });
-      }
+      nodes.push({
+        id: device.id,
+        type: 'deviceNode',
+        position:
+          layout.position || {
+            x: 100 + Math.random() * 200,
+            y: 400,
+          },
+        ...(layout.style && { style: layout.style }),
+        data: { type: device.type, config: device.config || {} },
+      });
     }
   });
- 
+
   topology.links.forEach((link, i) => {
     edges.push({
       id: `e-${link.source}-${link.target}-${i}`,
-      source: link.source, target: link.target,
-      sourceHandle: link.sourceHandle || null, targetHandle: link.targetHandle || null,
-      animated: false, style: { stroke: '#2d3348', strokeWidth: 2 },
+      source: link.source,
+      target: link.target,
+      sourceHandle: link.sourceHandle || null,
+      targetHandle: link.targetHandle || null,
+      animated: false,
+      style: { stroke: '#2d3348', strokeWidth: 2 },
     });
   });
- 
+
   return { nodes, edges };
 }
 
