@@ -6,8 +6,10 @@ import router from './router';
 import switchDef from './switch';
 import host from './host';
 import network from './network';
+import server from './server';
+import loadBalancer from './loadBalancer';
 
-const DEVICES = [router, switchDef, host, network];
+const DEVICES = [router, switchDef, host, network, server, loadBalancer];
 
 // Keyed map for O(1) lookup by type string
 export const DEVICE_MAP = Object.fromEntries(DEVICES.map((d) => [d.type, d]));
