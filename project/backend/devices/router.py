@@ -3,7 +3,7 @@ from __future__ import annotations
 import ipaddress
 from typing import Any
 
-from project.backend.devices.common import base_service, compose_network_attachments
+from backend.devices.common import base_service, compose_network_attachments
 
 
 def build_router_service(device: dict[str, Any], normalized: dict[str, Any]) -> dict[str, Any]:
@@ -107,7 +107,7 @@ def _build_ospf_config(device: dict[str, Any]) -> str:
 
 
 def render_router_context(device: dict[str, Any]) -> None:
-    from project.backend.generator import OUTPUT_DIR, copy_template, render_template_file
+    from backend.generator import OUTPUT_DIR, copy_template, render_template_file
 
     config = device.get("config") or {}
     destination = OUTPUT_DIR / device["id"]

@@ -7,9 +7,9 @@ from typing import Any
 
 import yaml
 
-from project.backend.devices.host import build_host_service, render_host_context
-from project.backend.devices.router import build_router_service, render_router_context
-from project.backend.devices.switch import build_switch_service, render_switch_context
+from backend.devices.host import build_host_service, render_host_context
+from backend.devices.router import build_router_service, render_router_context
+from backend.devices.switch import build_switch_service, render_switch_context
 
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = BASE_DIR / "templates"

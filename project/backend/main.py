@@ -7,7 +7,7 @@ import zipfile
 import io
 import subprocess
 
-from project.backend.generator import generate, OUTPUT_DIR
+from backend.generator import generate, OUTPUT_DIR
 
 app = FastAPI(title="GRS Backend")
 
