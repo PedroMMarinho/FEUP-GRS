@@ -1,11 +1,11 @@
-import hostIcon from '../assets/host.svg';
+import serverIcon from '../assets/server.svg';
 
 const server = {
   type: 'server',
   label: 'Server',
   color: '#14b8a6',
   textColor: '#ffffff',
-  icon: `<img src="${hostIcon}" style="width: 100%; height: 100%; object-fit: contain;" alt="Server" />`,
+  icon: `<img src="${serverIcon}" style="width: 100%; height: 100%; object-fit: contain;" alt="Server" />`,
 
   configFields: [
     {

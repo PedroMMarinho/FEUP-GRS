@@ -1,11 +1,11 @@
-import switchIcon from '../assets/switch.svg';
+import loadBalancerIcon from '../assets/balancer.svg';
 
 const loadBalancer = {
   type: 'load_balancer',
   label: 'Load Balancer',
   color: '#f59e0b',
   textColor: '#ffffff',
-  icon: `<img src="${switchIcon}" style="width: 100%; height: 100%; object-fit: contain;" alt="Load Balancer" />`,
+  icon: `<img src="${loadBalancerIcon}" style="width: 100%; height: 100%; object-fit: contain;" alt="Load Balancer" />`,
 
   configFields: [
     {

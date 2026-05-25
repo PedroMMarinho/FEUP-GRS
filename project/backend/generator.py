@@ -10,13 +10,15 @@ import yaml
 from backend.devices.host import build_host_service, render_host_context
 from backend.devices.router import build_router_service, render_router_context
 from backend.devices.switch import build_switch_service, render_switch_context
+from backend.devices.server import build_server_service, render_server_context
+from backend.devices.load_balancer import build_load_balancer_service, render_load_balancer_context
 
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 OUTPUT_DIR = BASE_DIR / "generated" / "network"
 COMPOSE_FILE = OUTPUT_DIR / "docker-compose.yml"
 
-SUPPORTED_TYPES = {"host", "switch", "router"}
+SUPPORTED_TYPES = {"host", "switch", "router", "server", "load_balancer"}
 TRANSIT_PREFIX = ipaddress.ip_network("10.255.0.0/16")
 TRANSIT_MASK = 29
 
@@ -53,6 +55,12 @@ def generate(topology: dict[str, Any]) -> str:
         elif device_type == "router":
             render_router_context(device)
             service = build_router_service(device, normalized)
+        elif device_type == "server":
+            render_server_context(device)
+            service = build_server_service(device, normalized)
+        elif device_type == "load_balancer":
+            render_load_balancer_context(device, normalized)
+            service = build_load_balancer_service(device, normalized)
         else:
             raise ValueError(f"Unsupported device type: {device_type}")
 
@@ -339,13 +347,14 @@ def normalize_and_validate(topology: dict[str, Any]) -> dict[str, Any]:
 
     validate_network_members(networks_by_id, devices_by_id)
     validate_links(links, devices_by_id)
+    validate_load_balancers(devices, devices_by_id, links)
 
     # Router-router links need generated transit Docker networks.
     add_transit_networks_for_router_links(networks_by_id, devices_by_id, links)
 
     # Mutates device dictionaries by adding generated fields used by device builders.
     for device in devices:
-        if device["type"] in {"host", "switch"}:
+        if device["type"] in {"host", "switch", "server", "load_balancer"}:
             attach_single_network_device(device, networks_by_id)
         elif device["type"] == "router":
             attach_router_networks(device, networks_by_id, devices_by_id)
@@ -398,6 +407,59 @@ def validate_device_basic(device: dict[str, Any]) -> None:
         raise ValueError(f"Device {device_id}.config must be an object")
     if not isinstance(device.get("networks", []), list):
         raise ValueError(f"Device {device_id}.networks must be a list")
+    
+def validate_load_balancers(
+    devices: list[dict[str, Any]],
+    devices_by_id: dict[str, dict[str, Any]],
+    links: list[dict[str, Any]],
+) -> None:
+    for device in devices:
+        if device.get("type") != "load_balancer":
+            continue
+
+        lb_id = device["id"]
+        linked_server_ids: set[str] = set()
+
+        for link in links:
+            source = link.get("source")
+            target = link.get("target")
+
+            if source == lb_id:
+                peer_id = target
+            elif target == lb_id:
+                peer_id = source
+            else:
+                continue
+
+            peer = devices_by_id.get(peer_id)
+            if not peer:
+                continue
+
+            if peer.get("type") == "server":
+                linked_server_ids.add(peer_id)
+            elif peer.get("type") in {"switch", "router"}:
+                # Connectivity links are allowed, but they are not nginx upstreams.
+                continue
+            else:
+                raise ValueError(
+                    f"Load balancer {lb_id} cannot connect to {peer.get('type')} {peer_id}"
+                )
+
+        if not linked_server_ids:
+            raise ValueError(f"Load balancer {lb_id} must connect to at least one server")
+
+        config = device.get("config") or {}
+        if not config.get("ip_address"):
+            raise ValueError(f"Load balancer {lb_id} needs config.ip_address")
+        if not config.get("domain"):
+            raise ValueError(f"Load balancer {lb_id} needs config.domain")
+
+        for server_id in linked_server_ids:
+            server = devices_by_id[server_id]
+            server_config = server.get("config") or {}
+
+            if not server_config.get("ip_address"):
+                raise ValueError(f"Server {server_id} connected to {lb_id} needs config.ip_address")
 
 
 def validate_network_members(
