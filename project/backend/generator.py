@@ -12,13 +12,14 @@ from backend.devices.router import build_router_service, render_router_context
 from backend.devices.switch import build_switch_service, render_switch_context
 from backend.devices.server import build_server_service, render_server_context
 from backend.devices.load_balancer import build_load_balancer_service, render_load_balancer_context
+from backend.devices.dns_server import build_dns_server_service, render_dns_server_context
 
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 OUTPUT_DIR = BASE_DIR / "generated" / "network"
 COMPOSE_FILE = OUTPUT_DIR / "docker-compose.yml"
 
-SUPPORTED_TYPES = {"host", "switch", "router", "server", "load_balancer"}
+SUPPORTED_TYPES = {"host", "switch", "router", "server", "load_balancer", "dns_server",}
 TRANSIT_PREFIX = ipaddress.ip_network("10.255.0.0/16")
 TRANSIT_MASK = 29
 
@@ -61,6 +62,9 @@ def generate(topology: dict[str, Any]) -> str:
         elif device_type == "load_balancer":
             render_load_balancer_context(device, normalized)
             service = build_load_balancer_service(device, normalized)
+        elif device_type == "dns_server":
+            render_dns_server_context(device)
+            service = build_dns_server_service(device, normalized)
         else:
             raise ValueError(f"Unsupported device type: {device_type}")
 
@@ -347,6 +351,8 @@ def normalize_and_validate(topology: dict[str, Any]) -> dict[str, Any]:
 
     validate_network_members(networks_by_id, devices_by_id)
     validate_links(links, devices_by_id)
+
+    validate_dns_servers(devices)
     validate_load_balancers(devices, devices_by_id, links)
 
     # Router-router links need generated transit Docker networks.
@@ -354,7 +360,7 @@ def normalize_and_validate(topology: dict[str, Any]) -> dict[str, Any]:
 
     # Mutates device dictionaries by adding generated fields used by device builders.
     for device in devices:
-        if device["type"] in {"host", "switch", "server", "load_balancer"}:
+        if device["type"] in {"host", "switch", "server", "load_balancer", "dns_server"}:
             attach_single_network_device(device, networks_by_id)
         elif device["type"] == "router":
             attach_router_networks(device, networks_by_id, devices_by_id)
@@ -480,6 +486,30 @@ def validate_links(links: list[dict[str, Any]], devices_by_id: dict[str, dict[st
             raise ValueError(f"Link #{index} references unknown source {source}")
         if target not in devices_by_id:
             raise ValueError(f"Link #{index} references unknown target {target}")
+        
+
+def validate_dns_servers(devices: list[dict[str, Any]]) -> None:
+    for device in devices:
+        if device.get("type") != "dns_server":
+            continue
+
+        config = device.get("config") or {}
+
+        if not config.get("ip_address"):
+            raise ValueError(f"DNS server {device['id']} needs config.ip_address")
+
+        records = config.get("records") or []
+        if not isinstance(records, list):
+            raise ValueError(f"DNS server {device['id']} config.records must be a list")
+
+        for index, record in enumerate(records):
+            if not isinstance(record, dict):
+                raise ValueError(f"DNS server {device['id']} record #{index} must be an object")
+
+            if not record.get("domain") or not record.get("ip"):
+                raise ValueError(
+                    f"DNS server {device['id']} record #{index} needs domain and ip"
+                )
 
 
 def attach_single_network_device(

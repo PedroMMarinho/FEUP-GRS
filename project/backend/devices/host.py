@@ -22,6 +22,7 @@ def render_host_context(device: dict[str, Any]) -> None:
         destination / "init.sh",
         {
             "hostname": config.get("hostname", device["id"]),
+            "dns_server": config.get("dns_server") or config.get("dns", ""),
             "gateway": config.get("gateway", ""),
         },
     )
