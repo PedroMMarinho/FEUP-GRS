@@ -1,25 +1,25 @@
-import hostIcon from '../assets/host.svg';
+import dnsIcon from '../assets/server.svg';
 
-const host = {
-  type: 'host',
-  label: 'Host',
-  color: '#2ab068',
+const dnsServer = {
+  type: 'dns_server',
+  label: 'DNS Server',
+  color: '#8b5cf6',
   textColor: '#ffffff',
-  icon: `<img src="${hostIcon}" style="width: 100%; height: 100%; object-fit: contain;" alt="Host" />`,
+  icon: `<img src="${dnsIcon}" style="width: 100%; height: 100%; object-fit: contain;" alt="DNS Server" />`,
 
   configFields: [
     {
       key: 'hostname',
       label: 'Hostname',
       type: 'text',
-      placeholder: 'host-01',
+      placeholder: 'dns-01',
       required: true,
     },
     {
       key: 'ip_address',
       label: 'IP Address',
       type: 'text',
-      placeholder: '10.0.0.10',
+      placeholder: '10.0.1.53',
       required: true,
     },
     {
@@ -32,20 +32,15 @@ const host = {
       key: 'gateway',
       label: 'Default Gateway',
       type: 'text',
-      placeholder: '10.0.0.1',
+      placeholder: '10.0.1.250',
     },
     {
-      key: 'dns_server',
-      label: 'DNS Server',
+      key: 'domain',
+      label: 'DNS Zone / Domain',
       type: 'text',
-      placeholder: '8.8.8.8',
-    },
-    {
-      key: 'dhcp',
-      label: 'Use DHCP',
-      type: 'checkbox',
+      placeholder: 'local',
     },
   ],
 };
 
-export default host;
+export default dnsServer;

@@ -15,6 +15,35 @@ export default function ConfigSidebar({ selectedNode, onConfigChange, onDelete, 
  
   const def = DEVICE_MAP[selectedNode.data.type];
   const config = selectedNode.data.config || {};
+  const isDnsServer = selectedNode?.data?.type === 'dns_server';
+  const dnsRecords = Array.isArray(config.records) ? config.records : [];
+
+  const updateDnsRecords = (records) => {
+    onConfigChange('records', records);
+  };
+
+  const handleManualRecordChange = (index, field, value) => {
+    const nextRecords = dnsRecords.map((record, i) =>
+      i === index ? { ...record, [field]: value, auto: false } : record
+    );
+
+    updateDnsRecords(nextRecords);
+  };
+
+  const handleAddManualRecord = () => {
+    updateDnsRecords([
+      ...dnsRecords,
+      {
+        domain: '',
+        ip: '',
+        auto: false,
+      },
+    ]);
+  };
+
+  const handleRemoveRecord = (index) => {
+    updateDnsRecords(dnsRecords.filter((_, i) => i !== index));
+  };
   const isRouter = selectedNode.data.type === 'router';
   const isHost = selectedNode.data.type === 'host';
   const supportsTerminal = isHost || isRouter;
@@ -199,6 +228,97 @@ export default function ConfigSidebar({ selectedNode, onConfigChange, onDelete, 
               })}
             </div>
           )}
+        </>
+      )}
+
+      {isDnsServer && (
+        <>
+          <div style={styles.divider} />
+          <div style={styles.sectionLabel}>DNS Records</div>
+
+          <div style={styles.fields}>
+            {dnsRecords.length === 0 ? (
+              <div style={{ fontSize: 12, color: theme.textMuted, padding: '8px 0' }}>
+                No DNS records yet. Add servers or load balancers, or create a manual record.
+              </div>
+            ) : (
+              dnsRecords.map((record, index) => {
+                const isAuto = Boolean(record.auto);
+
+                return (
+                  <div key={`${record.source || 'manual'}-${index}`} style={styles.interfaceBlock}>
+                    <div style={styles.interfaceHeader}>
+                      <span style={{ color: isAuto ? '#22c55e' : '#f59e0b', fontSize: 10 }}>●</span>
+                      <span style={styles.interfaceName}>
+                        {isAuto ? 'Auto record' : 'Manual record'}
+                      </span>
+                    </div>
+
+                    <div style={styles.fieldGroup}>
+                      <label style={styles.label}>Domain</label>
+                      <input
+                        type="text"
+                        value={record.domain || ''}
+                        disabled={isAuto}
+                        placeholder="app.local"
+                        onChange={(e) => handleManualRecordChange(index, 'domain', e.target.value)}
+                        style={{
+                          ...styles.input,
+                          opacity: isAuto ? 0.65 : 1,
+                          cursor: isAuto ? 'not-allowed' : 'text',
+                        }}
+                      />
+                    </div>
+
+                    <div style={styles.fieldGroup}>
+                      <label style={styles.label}>IP Address</label>
+                      <input
+                        type="text"
+                        value={record.ip || ''}
+                        disabled={isAuto}
+                        placeholder="10.0.1.100"
+                        onChange={(e) => handleManualRecordChange(index, 'ip', e.target.value)}
+                        style={{
+                          ...styles.input,
+                          opacity: isAuto ? 0.65 : 1,
+                          cursor: isAuto ? 'not-allowed' : 'text',
+                        }}
+                      />
+                    </div>
+
+                    {!isAuto && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveRecord(index)}
+                        style={styles.deleteBtn}
+                      >
+                        Remove Record
+                      </button>
+                    )}
+
+                    {isAuto && (
+                      <div style={{ fontSize: 10, color: theme.textMuted, marginTop: 4 }}>
+                        Source: {record.source}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+
+            <button
+              type="button"
+              onClick={handleAddManualRecord}
+              style={{
+                ...styles.deleteBtn,
+                background: theme.accentMain,
+                color: '#fff',
+                border: 'none',
+              }}
+            >
+              + Add Manual Record
+            </button>
+          </div>
         </>
       )}
  

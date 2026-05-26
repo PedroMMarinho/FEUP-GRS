@@ -73,7 +73,130 @@ const HOSTNAME_PREFIX = {
   router: 'router',
   server: 'server',
   load_balancer: 'lb',
+  dns_server: 'dns',
 };
+
+function deviceHasDnsRecord(device) {
+  return ['server', 'load_balancer'].includes(device.data?.type);
+}
+
+function makeAutoDnsRecord(device) {
+  const config = device.data?.config || {};
+  const domain = config.domain;
+  const ip = config.ip_address;
+
+  if (!domain || !ip) return null;
+
+  return {
+    domain,
+    ip,
+    auto: true,
+    source: device.id,
+  };
+}
+
+function recordsAreEqual(a, b) {
+  return (
+    a.domain === b.domain &&
+    a.ip === b.ip &&
+    Boolean(a.auto) === Boolean(b.auto) &&
+    (a.source || '') === (b.source || '')
+  );
+}
+
+function syncDnsRecords(nodes) {
+  const autoRecords = nodes
+    .filter(deviceHasDnsRecord)
+    .map(makeAutoDnsRecord)
+    .filter(Boolean);
+
+  return nodes.map((node) => {
+    if (node.data?.type !== 'dns_server') return node;
+
+    const config = node.data?.config || {};
+    const currentRecords = Array.isArray(config.records) ? config.records : [];
+
+    const manualRecords = currentRecords.filter((record) => !record.auto);
+
+    const nextRecords = [
+      ...autoRecords,
+      ...manualRecords,
+    ];
+
+    const sameLength = currentRecords.length === nextRecords.length;
+    const sameRecords =
+      sameLength &&
+      currentRecords.every((record, index) => recordsAreEqual(record, nextRecords[index]));
+
+    if (sameRecords) return node;
+
+    return {
+      ...node,
+      data: {
+        ...node.data,
+        config: {
+          ...config,
+          records: nextRecords,
+        },
+      },
+    };
+  });
+}
+
+function findDnsServerForNetwork(nodes, networkId) {
+  const sameNetworkDns = nodes.find(
+    (node) =>
+      node.data?.type === 'dns_server' &&
+      node.parentNode === networkId &&
+      node.data?.config?.ip_address
+  );
+
+  if (sameNetworkDns) return sameNetworkDns;
+
+  // Fallback: use any DNS server in the topology.
+  // This allows a DNS server on its own routed network.
+  return nodes.find(
+    (node) =>
+      node.data?.type === 'dns_server' &&
+      node.data?.config?.ip_address
+  );
+}
+
+function syncDeviceDnsServers(nodes) {
+  return nodes.map((node) => {
+    const type = node.data?.type;
+
+    if (!['host', 'server', 'load_balancer'].includes(type)) {
+      return node;
+    }
+
+    if (!node.parentNode) return node;
+
+    const config = node.data?.config || {};
+
+    // Preserve manual user config.
+    if (config.dns_server) return node;
+
+    const dnsServer = findDnsServerForNetwork(nodes, node.parentNode);
+
+    if (!dnsServer) return node;
+
+    return {
+      ...node,
+      data: {
+        ...node.data,
+        config: {
+          ...config,
+          dns_server: dnsServer.data.config.ip_address,
+        },
+      },
+    };
+  });
+}
+
+function syncDns(nodes) {
+  return syncDeviceDnsServers(syncDnsRecords(nodes));
+}
 
 function pad2(n) {
   return String(n).padStart(2, '0');
@@ -310,6 +433,32 @@ function createDefaultConfig(type, nodes, parentNetworkId = null) {
       const netCfg = getNetworkNodeById(nodes, parentNetworkId)?.data?.config || {};
 
       config.ip_address = nextIpInNetwork(nodes, parentNetworkId, 100, 199);
+
+      if (netCfg.mask) config.subnet_mask = cidrToMask(netCfg.mask);
+      if (netCfg.gateway) config.gateway = netCfg.gateway;
+    }
+
+    return config;
+  }
+
+  if (type === 'dns_server') {
+    const hostname = nextHostname('dns_server', nodes);
+
+    const config = {
+      hostname,
+      domain: 'local',
+      records: [],
+    };
+
+    if (parentNetworkId) {
+      const netCfg = getNetworkNodeById(nodes, parentNetworkId)?.data?.config || {};
+      const used = getUsedIpsInNetwork(nodes, parentNetworkId);
+
+      const preferredIp = netCfg.subnet ? addIpv4(netCfg.subnet, 53) : '';
+      config.ip_address =
+        preferredIp && !used.has(preferredIp)
+          ? preferredIp
+          : nextIpInNetwork(nodes, parentNetworkId, 50, 59);
 
       if (netCfg.mask) config.subnet_mask = cidrToMask(netCfg.mask);
       if (netCfg.gateway) config.gateway = netCfg.gateway;
@@ -749,7 +898,7 @@ export default function App() {
         ...(isRouter && { style: { width: 160, height: 120 } }),
       };
 
-      return nds.concat(newNode);
+      return syncDns(nds.concat(newNode));
     });
 
     setSelectedNodeId(id);
@@ -858,7 +1007,7 @@ export default function App() {
         }),
       };
 
-      setNodes((nds) => nds.filter((n) => n.id !== 'ghost-node').concat(newNode));
+      setNodes((nds) => syncDns(nds.filter((n) => n.id !== 'ghost-node').concat(newNode)));
       
       setDraggedDevice(null);
       setSelectedNodeId(id);
@@ -867,13 +1016,15 @@ export default function App() {
   );
 
   const handleConfigChange = useCallback((field, value) => {
-    setNodes((nds) =>
-      nds.map((node) =>
+    setNodes((nds) => {
+      const nextNodes = nds.map((node) =>
         node.id === selectedNodeId
           ? { ...node, data: { ...node.data, config: { ...node.data.config, [field]: value } } }
           : node
-      )
-    );
+      );
+
+      return syncDns(nextNodes);
+    });
   }, [selectedNodeId]);
 
   const handleDelete = useCallback(() => {
@@ -908,7 +1059,7 @@ export default function App() {
     try {
       const { nodes: importedNodes, edges: importedEdges } = importTopology(ospfWithLoadBalancer);
 
-      setNodes(importedNodes);
+      setNodes(syncDns(importedNodes));
       setEdges(importedEdges);
       setSelectedNodeId(null);
       setTerminals([]);
@@ -926,7 +1077,7 @@ export default function App() {
       try {
         const topology = JSON.parse(ev.target.result);
         const { nodes: importedNodes, edges: importedEdges } = importTopology(topology);
-        setNodes(importedNodes);
+        setNodes(syncDns(importedNodes));
         setEdges(importedEdges);
         setSelectedNodeId(null);
       } catch {
@@ -1129,7 +1280,7 @@ export default function App() {
               style={{ background: theme.canvasBg, border: `1px solid ${theme.borderColor}`, borderRadius: 8, overflow: 'hidden' }}
               nodeColor={(n) => {
                 const type = n.data?.type;
-                const colorMap = { router: '#e05c2a', switch: '#2a7be0', host: '#2ab068', network: '#7c3aed', server: '#14b8a6', load_balancer: '#f59e0b', };
+                const colorMap = { router: '#e05c2a', switch: '#2a7be0', host: '#2ab068', network: '#7c3aed', server: '#14b8a6', load_balancer: '#f59e0b', dns_server: '#8b5cf6',};
                 return colorMap[type] || theme.borderColor;
               }}
               maskColor={theme.minimapMask}
