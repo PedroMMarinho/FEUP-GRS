@@ -31,18 +31,28 @@ export default function DeviceNode({ data, selected }) {
         {/* Colored icon badge */}
         <div
           style={{
-            width: 30,
-            height: 30,
             background: def.color,
             borderRadius: 6,
-            display: 'flex',
+            padding: '3px', 
+            display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
             flexShrink: 0,
-            color: def.textColor,
           }}
-          dangerouslySetInnerHTML={{ __html: def.icon }}
-        />
+        >
+          {/* Inner container: Locks down the physical size of the icon */}
+          <div
+            style={{
+              width: 30,  
+              height: 30, 
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: def.textColor,
+            }}
+            dangerouslySetInnerHTML={{ __html: def.icon }}
+          />
+        </div>
 
         <div style={{ overflow: 'hidden' }}>
           <div style={{ fontSize: 11, color: '#6b7494', fontFamily: 'monospace' }}>

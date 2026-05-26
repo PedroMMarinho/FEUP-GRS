@@ -13,13 +13,18 @@ export default function Terminal({
 }) {
   const [command, setCommand] = useState('');
   const [history, setHistory] = useState([]);
+  const [commandHistory, setCommandHistory] = useState([]);
   const [isRunning, setIsRunning] = useState(false);
+  const [isCloseHovered, setIsCloseHovered] = useState(false);
   const [position, setPosition] = useState(initialPosition || { x: 280, y: 110 });
   const [size, setSize] = useState({ width: 620, height: 360 });
 
   const dragState = useRef(null);
   const resizeState = useRef(null);
   const bodyRef = useRef(null);
+  const inputRef = useRef(null);
+  const historyCursorRef = useRef(null);
+  const draftCommandRef = useRef('');
 
   const displayName = nodeName || nodeType || 'device';
   const prompt = useMemo(() => `${displayName}@netcompose:~$`, [displayName]);
@@ -79,9 +84,14 @@ export default function Terminal({
 
     const normalizedCommand = normalizeCommand(cmd);
 
+    setCommandHistory((prev) => [...prev, normalizedCommand.display]);
+    historyCursorRef.current = null;
+    draftCommandRef.current = '';
+
     setCommand('');
     setIsRunning(true);
     setHistory((prev) => [...prev, { type: 'command', text: `${prompt} ${normalizedCommand.display}` }]);
+    inputRef.current?.focus();
 
     try {
       const output = await onExecuteCommand?.(nodeId || nodeName, normalizedCommand.command);
@@ -94,6 +104,7 @@ export default function Terminal({
       setHistory((prev) => [...prev, { type: 'error', text: err?.message || String(err) }]);
     } finally {
       setIsRunning(false);
+      inputRef.current?.focus();
     }
   };
 
@@ -120,7 +131,17 @@ export default function Terminal({
           <span style={styles.dotGreen} />
           <span style={styles.title}>{displayName} terminal</span>
         </div>
-        <button style={styles.closeBtn} onClick={onClose}>Close</button>
+        <button
+          style={{
+            ...styles.closeBtn,
+            ...(isCloseHovered ? styles.closeBtnHover : {}),
+          }}
+          onMouseEnter={() => setIsCloseHovered(true)}
+          onMouseLeave={() => setIsCloseHovered(false)}
+          onClick={onClose}
+        >
+          Close
+        </button>
       </div>
 
       <div ref={bodyRef} style={styles.body}>
@@ -132,9 +153,42 @@ export default function Terminal({
       <div style={styles.inputRow}>
         <span style={styles.prompt}>{prompt}</span>
         <input
+          ref={inputRef}
           value={command}
           onChange={(event) => setCommand(event.target.value)}
           onKeyDown={(event) => {
+            if (event.key === 'ArrowUp') {
+              event.preventDefault();
+
+              if (commandHistory.length === 0) return;
+
+              if (historyCursorRef.current === null) {
+                draftCommandRef.current = command;
+                historyCursorRef.current = commandHistory.length - 1;
+              } else {
+                historyCursorRef.current = Math.max(0, historyCursorRef.current - 1);
+              }
+
+              setCommand(commandHistory[historyCursorRef.current]);
+              return;
+            }
+
+            if (event.key === 'ArrowDown') {
+              event.preventDefault();
+
+              if (historyCursorRef.current === null) return;
+
+              if (historyCursorRef.current >= commandHistory.length - 1) {
+                historyCursorRef.current = null;
+                setCommand(draftCommandRef.current);
+                return;
+              }
+
+              historyCursorRef.current += 1;
+              setCommand(commandHistory[historyCursorRef.current]);
+              return;
+            }
+
             if (event.key === 'Enter') {
               event.preventDefault();
               runCommand();
@@ -142,7 +196,7 @@ export default function Terminal({
           }}
           style={styles.input}
           placeholder={isRunning ? 'Running command...' : 'Type command'}
-          disabled={isRunning}
+          readOnly={isRunning}
         />
       </div>
 
@@ -229,6 +283,11 @@ const getStyles = (theme, size, position, isRunning, zIndex) => ({
     cursor: 'pointer',
     fontFamily: 'monospace',
     fontSize: 11,
+  },
+  closeBtnHover: {
+    background: '#334155',
+    color: '#fff',
+    borderColor: '#64748b',
   },
   body: {
     flex: 1,

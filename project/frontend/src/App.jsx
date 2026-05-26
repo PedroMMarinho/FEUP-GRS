@@ -16,7 +16,7 @@ import Toolbar from './components/Toolbar';
 import ConfigSidebar from './components/ConfigSidebar';
 import DeviceSidebar from './components/DeviceSidebar';
 import Terminal from './components/Terminal';
-import { EXAMPLE_NODES, EXAMPLE_EDGES } from './utils/exampleTopology';
+import ospfWithLoadBalancer from './utils/ospf_with_load_balancer.json';
 import { buildTopology, downloadJSON, downloadPNG, importTopology } from './utils/export';
 
 // Register custom node types once
@@ -71,6 +71,8 @@ const HOSTNAME_PREFIX = {
   host: 'host',
   switch: 'sw',
   router: 'router',
+  server: 'server',
+  load_balancer: 'lb',
 };
 
 function pad2(n) {
@@ -211,6 +213,25 @@ function nextHostIp(nodes, networkId) {
   return `${prefix}.10`;
 }
 
+function nextIpInNetwork(nodes, networkId, start = 10, end = 239) {
+  const networkNode = getNetworkNodeById(nodes, networkId);
+  const cfg = networkNode?.data?.config || {};
+  const subnet = cfg.subnet;
+
+  if (!subnet) return '';
+
+  const parts = subnet.split('.');
+  const prefix = `${parts[0]}.${parts[1]}.${parts[2]}`;
+  const used = getUsedIpsInNetwork(nodes, networkId);
+
+  for (let host = start; host <= end; host += 1) {
+    const candidate = `${prefix}.${host}`;
+    if (!used.has(candidate)) return candidate;
+  }
+
+  return `${prefix}.${start}`;
+}
+
 function createDefaultConfig(type, nodes, parentNetworkId = null) {
   if (type === 'network') {
     return nextNetworkConfig(nodes);
@@ -246,6 +267,49 @@ function createDefaultConfig(type, nodes, parentNetworkId = null) {
     if (parentNetworkId) {
       const netCfg = getNetworkNodeById(nodes, parentNetworkId)?.data?.config || {};
       config.ip_address = nextHostIp(nodes, parentNetworkId);
+
+      if (netCfg.mask) config.subnet_mask = cidrToMask(netCfg.mask);
+      if (netCfg.gateway) config.gateway = netCfg.gateway;
+    }
+
+    return config;
+  }
+
+  if (type === 'server') {
+    const hostname = nextHostname('server', nodes);
+
+    const config = {
+      hostname,
+      domain: `${hostname}.local`,
+      port: '80',
+    };
+
+    if (parentNetworkId) {
+      const netCfg = getNetworkNodeById(nodes, parentNetworkId)?.data?.config || {};
+
+      config.ip_address = nextIpInNetwork(nodes, parentNetworkId, 20, 99);
+
+      if (netCfg.mask) config.subnet_mask = cidrToMask(netCfg.mask);
+      if (netCfg.gateway) config.gateway = netCfg.gateway;
+    }
+
+    return config;
+  }
+
+  if (type === 'load_balancer') {
+    const hostname = nextHostname('load_balancer', nodes);
+
+    const config = {
+      hostname,
+      domain: 'app.local',
+      port: '80',
+      algorithm: 'round_robin',
+    };
+
+    if (parentNetworkId) {
+      const netCfg = getNetworkNodeById(nodes, parentNetworkId)?.data?.config || {};
+
+      config.ip_address = nextIpInNetwork(nodes, parentNetworkId, 100, 199);
 
       if (netCfg.mask) config.subnet_mask = cidrToMask(netCfg.mask);
       if (netCfg.gateway) config.gateway = netCfg.gateway;
@@ -399,6 +463,44 @@ function applyRouterInterfacesForConnection(nodes, params) {
       ? { ...node, data: { ...node.data, config: updates.get(node.id) } }
       : node
   );
+}
+
+function validateConnection(nodes, params) {
+  const sourceNode = nodes.find((n) => n.id === params.source);
+  const targetNode = nodes.find((n) => n.id === params.target);
+
+  if (!sourceNode || !targetNode) {
+    return { ok: false, reason: 'Invalid connection.' };
+  }
+
+  const sourceType = sourceNode.data?.type;
+  const targetType = targetNode.data?.type;
+
+  if (sourceNode.type === 'networkNode' || targetNode.type === 'networkNode') {
+    return {
+      ok: false,
+      reason: 'Network boxes are visual only. Drop devices inside them instead.',
+    };
+  }
+
+  const involvesLoadBalancer =
+    sourceType === 'load_balancer' || targetType === 'load_balancer';
+
+  if (involvesLoadBalancer) {
+    const otherType =
+      sourceType === 'load_balancer' ? targetType : sourceType;
+
+    const allowedTypes = new Set(['server', 'switch', 'router']);
+
+    if (!allowedTypes.has(otherType)) {
+      return {
+        ok: false,
+        reason: 'Load balancers can only connect to servers, switches, or routers.',
+      };
+    }
+  }
+
+  return { ok: true };
 }
 
 export default function App() {
@@ -601,6 +703,13 @@ export default function App() {
   
   // Updated to use dynamic theme color for new edges
   const onConnect = useCallback((params) => {
+    const validation = validateConnection(nodes, params);
+
+    if (!validation.ok) {
+      alert(validation.reason);
+      return;
+    }
+
     setNodes((nds) => applyRouterInterfacesForConnection(nds, params));
 
     setEdges((eds) =>
@@ -613,7 +722,7 @@ export default function App() {
         eds
       )
     );
-  }, [theme]);
+  }, [nodes, theme]);
 
   const onNodeClick = useCallback((_, node) => setSelectedNodeId(node.id), []);
   const onPaneClick = useCallback(() => setSelectedNodeId(null), []);
@@ -796,9 +905,17 @@ export default function App() {
   }, [nodes.length, edges.length]);
 
   const handleLoadExample = useCallback(() => {
-    setNodes(EXAMPLE_NODES);
-    setEdges(EXAMPLE_EDGES);
-    setSelectedNodeId(null);
+    try {
+      const { nodes: importedNodes, edges: importedEdges } = importTopology(ospfWithLoadBalancer);
+
+      setNodes(importedNodes);
+      setEdges(importedEdges);
+      setSelectedNodeId(null);
+      setTerminals([]);
+    } catch (error) {
+      console.error('Failed to load example topology:', error);
+      alert('Failed to load example topology.');
+    }
   }, []);
 
   const handleImport = useCallback((e) => {
@@ -1012,7 +1129,7 @@ export default function App() {
               style={{ background: theme.canvasBg, border: `1px solid ${theme.borderColor}`, borderRadius: 8, overflow: 'hidden' }}
               nodeColor={(n) => {
                 const type = n.data?.type;
-                const colorMap = { router: '#e05c2a', switch: '#2a7be0', host: '#2ab068', network: '#7c3aed' };
+                const colorMap = { router: '#e05c2a', switch: '#2a7be0', host: '#2ab068', network: '#7c3aed', server: '#14b8a6', load_balancer: '#f59e0b', };
                 return colorMap[type] || theme.borderColor;
               }}
               maskColor={theme.minimapMask}
