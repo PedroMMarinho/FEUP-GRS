@@ -1,9 +1,9 @@
-import dnsIcon from '../assets/server.svg';
+import dnsIcon from '../assets/dns.svg';
 
 const dnsServer = {
   type: 'dns_server',
   label: 'DNS Server',
-  color: '#8b5cf6',
+  color: '#c10cc7',
   textColor: '#ffffff',
   icon: `<img src="${dnsIcon}" style="width: 100%; height: 100%; object-fit: contain;" alt="DNS Server" />`,
 
