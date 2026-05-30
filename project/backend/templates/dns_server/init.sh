@@ -3,7 +3,9 @@
 set -e
 
 GATEWAY="{{gateway}}"
-DNS_SERVER="{{dns_server}}"
+IP_ADDRESS="{{ip_address}}"
+DOMAIN="{{domain}}"
+UPSTREAM_DNS="{{upstream_dns}}"
 
 _fix_gateway_once() {
     CURRENT=$(ip route show default 2>/dev/null | awk '{print $3; exit}')
@@ -14,44 +16,30 @@ _fix_gateway_once() {
     fi
 }
 
-_configure_dns_once() {
-    if [ -n "$DNS_SERVER" ]; then
-        cat > /etc/resolv.conf <<EOF
-nameserver $DNS_SERVER
-options ndots:0
-EOF
-    fi
-}
-
 if [ -n "$GATEWAY" ]; then
     (
         for i in $(seq 1 10); do
             _fix_gateway_once
-            _configure_dns_once
             sleep 1
         done
 
         while true; do
             _fix_gateway_once
-            _configure_dns_once
             sleep 30
         done
     ) &
 
     sleep 2
-    echo "[host] Default gateway enforced to $GATEWAY"
+    echo "[dns] Default gateway enforced to $GATEWAY"
 else
-    echo "[host] No gateway configured"
+    echo "[dns] No gateway configured"
 fi
 
-_configure_dns_once
+echo "[dns] started as $(hostname)"
+echo "[dns] IP: $IP_ADDRESS"
+echo "[dns] domain: $DOMAIN"
+echo "[dns] upstream DNS: $UPSTREAM_DNS"
+echo "[dns] dnsmasq config:"
+cat /etc/dnsmasq.conf
 
-if [ -n "$DNS_SERVER" ]; then
-    echo "[host] DNS server set to $DNS_SERVER"
-else
-    echo "[host] No DNS server configured"
-fi
-
-echo "[host] started as $(hostname)"
-
-tail -f /dev/null
+exec dnsmasq --no-daemon --conf-file=/etc/dnsmasq.conf
