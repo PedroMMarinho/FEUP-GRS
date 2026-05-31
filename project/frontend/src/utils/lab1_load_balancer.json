@@ -1,0 +1,332 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-05-31T22:12:51.529Z",
+  "layout": {
+    "nodes": {
+      "network_clients": {
+        "position": {
+          "x": 256.0080151458477,
+          "y": -121.11724510008489
+        },
+        "style": {
+          "width": 458,
+          "height": 272
+        }
+      },
+      "network_servers": {
+        "position": {
+          "x": 109.24660872705203,
+          "y": 459.38592517924917
+        },
+        "style": {
+          "width": 811,
+          "height": 357
+        }
+      },
+      "linux_router": {
+        "position": {
+          "x": 400.1258276449079,
+          "y": 231.26437224396807
+        },
+        "style": {
+          "width": 160,
+          "height": 120
+        }
+      },
+      "client_1": {
+        "position": {
+          "x": 27.130077668937815,
+          "y": 67.90739913480283
+        },
+        "parentNode": "network_clients",
+        "extent": "parent"
+      },
+      "client_2": {
+        "position": {
+          "x": 283.0343322559787,
+          "y": 69.1779503754174
+        },
+        "parentNode": "network_clients",
+        "extent": "parent"
+      },
+      "switch_r8yej": {
+        "position": {
+          "x": 148.7708973142233,
+          "y": 189.59331238421254
+        },
+        "parentNode": "network_clients",
+        "extent": "parent"
+      },
+      "server_r4pie": {
+        "position": {
+          "x": 206.6665238158821,
+          "y": 263.3234976474157
+        },
+        "parentNode": "network_servers",
+        "extent": "parent"
+      },
+      "server_wde13": {
+        "position": {
+          "x": 387.45882097629953,
+          "y": 265
+        },
+        "parentNode": "network_servers",
+        "extent": "parent"
+      },
+      "server_fy1yd": {
+        "position": {
+          "x": 561.4523519377375,
+          "y": 265
+        },
+        "parentNode": "network_servers",
+        "extent": "parent"
+      },
+      "load_balancer_m2k7m": {
+        "position": {
+          "x": 73.64840661640494,
+          "y": 116.76668019437113
+        },
+        "parentNode": "network_servers",
+        "extent": "parent"
+      }
+    }
+  },
+  "networks": [
+    {
+      "id": "network_clients",
+      "config": {
+        "subnet": "10.0.1.0",
+        "mask": "24",
+        "gateway": "10.0.1.254"
+      },
+      "members": [
+        "client_1",
+        "client_2",
+        "switch_r8yej"
+      ]
+    },
+    {
+      "id": "network_servers",
+      "config": {
+        "subnet": "10.0.2.0",
+        "mask": "24",
+        "gateway": "10.0.2.254"
+      },
+      "members": [
+        "server_r4pie",
+        "server_wde13",
+        "server_fy1yd",
+        "load_balancer_m2k7m"
+      ]
+    }
+  ],
+  "devices": [
+    {
+      "id": "linux_router",
+      "type": "router",
+      "config": {
+        "hostname": "router-main",
+        "ospf_enabled": false,
+        "interfaces": {
+          "switch_r8yej": {
+            "ip": "10.0.1.254",
+            "subnet": "10.0.1.0",
+            "mask": "24",
+            "ospf_area": "0.0.0.0",
+            "ospf_cost": "1"
+          },
+          "load_balancer_m2k7m": {
+            "ip": "10.0.2.254",
+            "subnet": "10.0.2.0",
+            "mask": "24",
+            "ospf_area": "0.0.0.0",
+            "ospf_cost": "1"
+          },
+          "server_r4pie": {
+            "ip": "10.0.2.254",
+            "subnet": "10.0.2.0",
+            "mask": "24",
+            "ospf_area": "0.0.0.0",
+            "ospf_cost": "1"
+          },
+          "server_wde13": {
+            "ip": "10.0.2.254",
+            "subnet": "10.0.2.0",
+            "mask": "24",
+            "ospf_area": "0.0.0.0",
+            "ospf_cost": "1"
+          },
+          "server_fy1yd": {
+            "ip": "10.0.2.254",
+            "subnet": "10.0.2.0",
+            "mask": "24",
+            "ospf_area": "0.0.0.0",
+            "ospf_cost": "1"
+          }
+        }
+      },
+      "networks": []
+    },
+    {
+      "id": "client_1",
+      "type": "host",
+      "config": {
+        "hostname": "client-01",
+        "ip_address": "10.0.1.10",
+        "subnet_mask": "255.255.255.0",
+        "gateway": "10.0.1.254"
+      },
+      "networks": [
+        "network_clients"
+      ]
+    },
+    {
+      "id": "client_2",
+      "type": "host",
+      "config": {
+        "hostname": "client-02",
+        "ip_address": "10.0.1.11",
+        "subnet_mask": "255.255.255.0",
+        "gateway": "10.0.1.254"
+      },
+      "networks": [
+        "network_clients"
+      ]
+    },
+    {
+      "id": "switch_r8yej",
+      "type": "switch",
+      "config": {
+        "hostname": "sw-clients",
+        "gateway": "10.0.1.254",
+        "subnet_mask": "255.255.255.0"
+      },
+      "networks": [
+        "network_clients"
+      ]
+    },
+    {
+      "id": "server_r4pie",
+      "type": "server",
+      "config": {
+        "hostname": "server-01",
+        "domain": "server-01.local",
+        "port": "80",
+        "ip_address": "10.0.2.20",
+        "subnet_mask": "255.255.255.0",
+        "gateway": "10.0.2.254"
+      },
+      "networks": [
+        "network_servers"
+      ]
+    },
+    {
+      "id": "server_wde13",
+      "type": "server",
+      "config": {
+        "hostname": "server-02",
+        "domain": "server-02.local",
+        "port": "80",
+        "ip_address": "10.0.2.21",
+        "subnet_mask": "255.255.255.0",
+        "gateway": "10.0.2.254"
+      },
+      "networks": [
+        "network_servers"
+      ]
+    },
+    {
+      "id": "server_fy1yd",
+      "type": "server",
+      "config": {
+        "hostname": "server-03",
+        "domain": "server-03.local",
+        "port": "80",
+        "ip_address": "10.0.2.22",
+        "subnet_mask": "255.255.255.0",
+        "gateway": "10.0.2.254"
+      },
+      "networks": [
+        "network_servers"
+      ]
+    },
+    {
+      "id": "load_balancer_m2k7m",
+      "type": "load_balancer",
+      "config": {
+        "hostname": "lb-01",
+        "domain": "app.local",
+        "port": "80",
+        "algorithm": "round_robin",
+        "ip_address": "10.0.2.100",
+        "subnet_mask": "255.255.255.0",
+        "gateway": "10.0.2.254"
+      },
+      "networks": [
+        "network_servers"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "source": "switch_r8yej",
+      "target": "linux_router",
+      "sourceHandle": null,
+      "targetHandle": "top"
+    },
+    {
+      "source": "client_1",
+      "target": "switch_r8yej",
+      "sourceHandle": null,
+      "targetHandle": null
+    },
+    {
+      "source": "client_2",
+      "target": "switch_r8yej",
+      "sourceHandle": null,
+      "targetHandle": null
+    },
+    {
+      "source": "load_balancer_m2k7m",
+      "target": "server_wde13",
+      "sourceHandle": null,
+      "targetHandle": null
+    },
+    {
+      "source": "load_balancer_m2k7m",
+      "target": "server_fy1yd",
+      "sourceHandle": null,
+      "targetHandle": null
+    },
+    {
+      "source": "load_balancer_m2k7m",
+      "target": "server_r4pie",
+      "sourceHandle": null,
+      "targetHandle": null
+    },
+    {
+      "source": "linux_router",
+      "target": "load_balancer_m2k7m",
+      "sourceHandle": "bottom",
+      "targetHandle": null
+    },
+    {
+      "source": "linux_router",
+      "target": "server_r4pie",
+      "sourceHandle": "bottom",
+      "targetHandle": null
+    },
+    {
+      "source": "linux_router",
+      "target": "server_wde13",
+      "sourceHandle": "bottom",
+      "targetHandle": null
+    },
+    {
+      "source": "linux_router",
+      "target": "server_fy1yd",
+      "sourceHandle": "bottom",
+      "targetHandle": null
+    }
+  ]
+}
